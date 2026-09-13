@@ -118,15 +118,35 @@ Helpers on `ctx.ui`:
 - `bar(fraction, cells)` — `━━━───` progress bar; `spread(left, right)` — two-column line
 - `clock(date)`, `LINE` (27), `linesFor(heightPx)`
 
-## In-app settings screens
+## App settings (declarative)
 
-Apps with options should expose them both as state (`PUT /api/apps/<id>/state` or
-`onMessage`) and as list screens on the glasses. `demo/miniclock/settings.js` is a
-copy-paste helper for the latter: describe the options as a schema, render
-`settingsRows()` / `optionRows()` into a list container, and feed `select` events to
-`settingsSelect()`; double-tap steps back (consume it with `return true`). See
-`demo/miniclock/index.js` for the full pattern including IMU-driven behaviour (fade away,
-wake when looking up/down) and a calibration action.
+Declare a `settings` schema and the shell does the rest: a **"<Title> settings"** item
+appears in the app's tap-and-hold menu, the option screens are rendered as native lists
+(double-tap steps back), chosen values are written to `ctx.state[key]` and persisted, and
+`onSettingsChange(ctx, key, value)` is called. Action rows call `onSettingsAction(ctx, key)`.
+`settingsStatus(ctx)` can add live text to the header. `POST /api/apps/<id>/settings` opens
+the screens from outside; `PUT /api/apps/<id>/state` sets values without them.
+
+```js
+settings: [
+  { key: 'units', label: 'Units', options: [{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }] },
+  { key: 'refreshMin', label: 'Refresh every', options: [5, 15, 60].map((v) => ({ value: v, label: `${v} min` })) },
+  { key: 'reset', label: 'Reset history', action: true },
+],
+onSettingsChange(ctx, key, value) { if (key === 'refreshMin') restartTimer(ctx) },
+onSettingsAction(ctx, key) { if (key === 'reset') { ctx.mem.history = []; ctx.render() } },
+```
+
+`demo/time/clock/index.js` uses this for a dozen options including IMU-driven fade/wake
+with a calibration action.
+
+## The tap-and-hold menu
+
+The glasses' contextual menu (tap-and-hold on the touchpad, ≤10 items) is composed per app:
+the app's `menu` items (or the `menu` of the view it just returned), then *"<Title>
+settings"* when it has a schema, then **Home**. Which *other* apps are listed is the user's
+choice (`config.menu.apps`: none / same folder / all, plus `pinned` ids) — see `docs/CONFIG.md`.
+On the home screen the menu is *Settings* and *Exit* (plus *Top level* inside a folder).
 
 ## Context (`ctx`)
 
@@ -158,7 +178,7 @@ Return `true` to consume a gesture. Otherwise the user's **in-app default bindin
 *before* the app sees the gesture. See `docs/CONFIG.md`.
 
 The contextual menu (tap-and-hold on the touchpad) shows your `menu` items first, then
-**Home** and the other apps.
+your settings entry and **Home** (other apps only if the user configured that).
 
 ## HTTP surface of an app
 

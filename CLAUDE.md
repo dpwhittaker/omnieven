@@ -54,8 +54,8 @@ curl -s -H "Authorization: Bearer $T" -X POST $A/apps/notes/message -H 'content-
    ≤1000 chars per text container, lists ≤20 × 64 chars, one capture container. Use
    `ctx.ui.fit/wrap/paginate` for text that may overflow; the capture container scrolls.
 4. Keep `render()` pure and fast; do I/O in `init`/timers/handlers and call `ctx.render()`.
-   Apps with options: keep them in `ctx.state`, accept them in `onMessage`, and offer list
-   screens on the glasses (copy `demo/miniclock/settings.js`).
+   Apps with options: declare a `settings` schema (the shell renders the screens and adds a
+   menu item) and accept the same keys in `onMessage`; see `demo/time/clock/index.js`.
 5. Test with the fake client and `GET /api/screen`; then confirm on hardware if available.
 
 ## Server changes

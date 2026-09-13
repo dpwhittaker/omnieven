@@ -6,6 +6,7 @@ types in [`shared/config.ts`](../shared/config.ts).
 
 ```json
 {
+  "menu": { "apps": "none", "pinned": [], "settings": false },
   "gestures": {
     "root":   { "double": "exit", "longpress": "blank" },
     "global": { "tap>longpress": "config" },
@@ -13,6 +14,11 @@ types in [`shared/config.ts`](../shared/config.ts).
   }
 }
 ```
+
+**`menu`** controls the tap-and-hold contextual menu inside apps: `apps` = which other apps
+to list (`none` — just the app's items and Home; `folder` — apps in the same folder;
+`all` — everything, up to the 10-item limit), `pinned` = app ids always listed, `settings` =
+also show the global Settings item. Changeable on the glasses (Settings → last two rows).
 
 | Scope | Applies |
 |---|---|

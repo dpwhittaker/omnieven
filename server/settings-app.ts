@@ -15,11 +15,18 @@ const SCOPES: { id: Scope; label: string; hint: string }[] = [
 export interface SettingsHost {
   config(): OmniConfig
   setBinding(scope: Scope, gesture: string, action: Action | null): void
+  setMenu(patch: Partial<OmniConfig['menu']>): void
   apps(): { id: string; title: string; group: string }[]
   close(): void
 }
 
-interface Mem { level: 'scopes' | 'bindings' | 'gesture' | 'action' | 'app'; scope: Scope; gesture: string }
+interface Mem { level: 'scopes' | 'bindings' | 'gesture' | 'action' | 'app' | 'menu-apps'; scope: Scope; gesture: string }
+
+const MENU_APPS: { value: OmniConfig['menu']['apps']; label: string }[] = [
+  { value: 'none', label: 'none (just the app\'s own items + Home)' },
+  { value: 'folder', label: 'apps in the same folder' },
+  { value: 'all', label: 'all apps (up to the 10-item limit)' },
+]
 
 export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
   const back = (m: Mem): boolean => {
@@ -40,7 +47,13 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
       const list = (items: string[]) => ({ type: 'list' as const, name: 'list', x: 0, y: 34, w: 576, h: 254, items, capture: true })
       switch (m.level) {
         case 'scopes':
-          return { containers: [header('Settings  ·  tap: open  ·  double-tap: close'), list(SCOPES.map((s) => `${s.label}  (${s.hint})`))] }
+          return { containers: [header('Settings  ·  tap: open  ·  double-tap: close'), list([
+            ...SCOPES.map((s) => `${s.label}  (${s.hint})`),
+            `Menu shows other apps:  ${MENU_APPS.find((o) => o.value === cfg.menu.apps)?.label.split(' (')[0]}`,
+            `Menu shows Settings item:  ${cfg.menu.settings ? 'yes' : 'no'}`,
+          ])] }
+        case 'menu-apps':
+          return { containers: [header('Which other apps appear in an app\'s tap-and-hold menu?'), list(MENU_APPS.map((o) => `${o.value === cfg.menu.apps ? '● ' : '○ '}${o.label}`))] }
         case 'bindings': {
           const b = cfg.gestures[m.scope]
           const rows = Object.entries(b).map(([g, a]) => `${g}  →  ${a}`)
@@ -62,7 +75,16 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
       const cfg = host.config()
       switch (m.level) {
         case 'scopes':
-          m.scope = SCOPES[ev.index]?.id ?? 'root'; m.level = 'bindings'; break
+          if (ev.index < SCOPES.length) { m.scope = SCOPES[ev.index].id; m.level = 'bindings' }
+          else if (ev.index === SCOPES.length) m.level = 'menu-apps'
+          else host.setMenu({ settings: !cfg.menu.settings })
+          break
+        case 'menu-apps': {
+          const o = MENU_APPS[ev.index]
+          if (o) host.setMenu({ apps: o.value })
+          m.level = 'scopes'
+          break
+        }
         case 'bindings': {
           const keys = Object.keys(cfg.gestures[m.scope])
           if (ev.index < keys.length) { m.gesture = keys[ev.index]; m.level = 'action' }

@@ -74,6 +74,16 @@ export interface AppContext<S = Record<string, any>, M = Record<string, any>> {
   fetch: typeof fetch
 }
 
+/**
+ * Declarative app settings. Declaring `settings` on an app adds a
+ * "<title> settings" item to its contextual menu; the shell renders the list
+ * screens, writes chosen values into `ctx.state[key]`, persists, and calls
+ * `onSettingsChange`. Action rows call `onSettingsAction` instead.
+ */
+export type AppSetting =
+  | { key: string; label: string; options: { value: any; label: string }[] }
+  | { key: string; label: string; action: true }
+
 export interface OmniApp<S = Record<string, any>, M = Record<string, any>> {
   /** shown on the home list and in menus (≤32 chars) */
   title?: string
@@ -91,6 +101,14 @@ export interface OmniApp<S = Record<string, any>, M = Record<string, any>> {
   hidden?: boolean
   /** the app's own contextual-menu entries (≤8); a view's `menu` overrides per render */
   menu?: MenuItem[]
+  /** options edited on the glasses via the contextual menu; values live in ctx.state[key] */
+  settings?: AppSetting[]
+  /** a settings value was changed on the glasses (already stored in ctx.state) */
+  onSettingsChange?(ctx: AppContext<S, M>, key: string, value: any): void
+  /** an action row in settings was chosen */
+  onSettingsAction?(ctx: AppContext<S, M>, key: string): void
+  /** extra text for the settings header (e.g. live sensor values) */
+  settingsStatus?(ctx: AppContext<S, M>): string
 
   init?(ctx: AppContext<S, M>): void | Promise<void>
   render(ctx: AppContext<S, M>): View

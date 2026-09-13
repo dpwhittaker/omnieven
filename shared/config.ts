@@ -27,7 +27,17 @@ export type Action = string
 
 export interface GestureBindings { [gesture: GestureKey]: Action }
 
+export interface MenuConfig {
+  /** which other apps to list in an app's contextual menu */
+  apps: 'none' | 'folder' | 'all'
+  /** app ids always listed (as "Open: <title>") */
+  pinned: string[]
+  /** include a Settings item in every app menu */
+  settings: boolean
+}
+
 export interface OmniConfig {
+  menu: MenuConfig
   gestures: {
     /** home list, blank screen and API-pushed views — not inside apps */
     root: GestureBindings
@@ -41,6 +51,7 @@ export interface OmniConfig {
 export const GESTURE_WINDOW_MS = 1500
 
 export const DEFAULT_CONFIG: OmniConfig = {
+  menu: { apps: 'none', pinned: [], settings: false },
   gestures: {
     root: { double: 'exit', longpress: 'blank' },
     global: { 'tap>longpress': 'config' },

@@ -1,7 +1,7 @@
 // Persisted shell configuration (data/config.json) with defaults merged in.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_CONFIG, type Action, type GestureBindings, type OmniConfig } from '../shared/config.ts'
+import { DEFAULT_CONFIG, type Action, type GestureBindings, type MenuConfig, type OmniConfig } from '../shared/config.ts'
 import { DATA_DIR } from './config.ts'
 import { log } from './log.ts'
 
@@ -16,6 +16,15 @@ function cleanBindings(b: unknown): GestureBindings {
   return out
 }
 
+function cleanMenu(m: unknown, base: MenuConfig): MenuConfig {
+  const o = (m && typeof m === 'object' ? m : {}) as Partial<MenuConfig>
+  return {
+    apps: o.apps === 'folder' || o.apps === 'all' || o.apps === 'none' ? o.apps : base.apps,
+    pinned: Array.isArray(o.pinned) ? o.pinned.filter((x): x is string => typeof x === 'string') : base.pinned,
+    settings: typeof o.settings === 'boolean' ? o.settings : base.settings,
+  }
+}
+
 export function loadConfig(): OmniConfig {
   let saved: Partial<OmniConfig> = {}
   if (existsSync(FILE)) {
@@ -23,6 +32,7 @@ export function loadConfig(): OmniConfig {
   }
   const g = saved.gestures || ({} as Partial<OmniConfig['gestures']>)
   return {
+    menu: cleanMenu(saved.menu, DEFAULT_CONFIG.menu),
     gestures: {
       root: { ...DEFAULT_CONFIG.gestures.root, ...cleanBindings(g.root) },
       global: { ...DEFAULT_CONFIG.gestures.global, ...cleanBindings(g.global) },
@@ -39,6 +49,7 @@ export function saveConfig(cfg: OmniConfig): void {
 export function mergeConfig(cfg: OmniConfig, patch: Partial<OmniConfig>): OmniConfig {
   const g: Partial<OmniConfig['gestures']> = patch.gestures || {}
   return {
+    menu: cleanMenu(patch.menu, cfg.menu),
     gestures: {
       root: { ...cfg.gestures.root, ...cleanBindings(g.root) },
       global: { ...cfg.gestures.global, ...cleanBindings(g.global) },

@@ -140,6 +140,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
       if (!app) { sendJson(res, 404, { error: `no such app: ${id}` }); return true }
       if (m === 'GET' && !rest) { sendJson(res, 200, { id, title: app.title, error: app.loadError || app.error, active: shell.isActive(id), state: app.state, file: app.file }); return true }
       if (m === 'POST' && rest === '/open') { shell.open(id); sendJson(res, 200, { ok: true }); return true }
+      if (m === 'POST' && rest === '/settings') { shell.open(id); shell.appSettings = { screen: 'list', index: 0 }; shell.requestRender(); sendJson(res, 200, { ok: true }); return true }
       if (m === 'POST' && rest === '/message') {
         const b = await readJson(req)
         const result = await shell.message(id, b)

@@ -3,6 +3,7 @@
 // of glasses events to whichever of those is on screen.
 import { EventEmitter } from 'node:events'
 import type { AppEvent, AppLocation, CmdArgs, CmdOp, EvenHubEvent, NormalizedEvent } from '../shared/protocol.ts'
+import type { AppSetting } from '../shared/app.ts'
 import type { ExplicitView, MenuItem, View } from '../shared/view.ts'
 import type { HttpRequest, HttpResponse } from '../shared/app.ts'
 import type { Action, OmniConfig } from '../shared/config.ts'
@@ -17,7 +18,7 @@ import { log } from './log.ts'
 
 export const SETTINGS_ID = 'settings'
 
-const MENU = { HOME: 1, EXIT: 2, SETTINGS: 3, APP_BASE: 10, CUSTOM_BASE: 100, MAX_ITEMS: 10, MAX_CUSTOM: 8 }
+const MENU = { HOME: 1, EXIT: 2, SETTINGS: 3, APP_SETTINGS: 4, APP_BASE: 10, CUSTOM_BASE: 100, MAX_ITEMS: 10, MAX_CUSTOM: 8 }
 const RENDER_DEBOUNCE_MS = 30
 const DEFAULT_NOTIFY_MS = 5000
 
@@ -37,6 +38,8 @@ export class Shell extends EventEmitter {
   blank = false
   /** folder currently shown on the home screen, e.g. ['Tools', 'Time'] */
   homePath: string[] = []
+  /** the shell-rendered settings screens of the active app (from its `settings` schema) */
+  appSettings: { screen: 'list' | 'option'; index: number } | null = null
   config: OmniConfig = loadConfig()
   readonly registry: AppRegistry
   private gestures = new GestureTracker()
@@ -75,6 +78,7 @@ export class Shell extends EventEmitter {
     await this.registry.registerBuiltin(SETTINGS_ID, makeSettingsApp({
       config: () => this.config,
       setBinding: (scope, gesture, action) => this.setBinding(scope, gesture, action),
+      setMenu: (patch) => { this.updateConfig({ menu: { ...this.config.menu, ...patch } }) },
       apps: () => this.registry.list().map((a) => ({ id: a.id, title: a.title, group: a.group })),
       close: () => this.restore(),
     }))
@@ -184,6 +188,7 @@ export class Shell extends EventEmitter {
     const prev = this.activeApp
     if (prev && prev.id !== id) this.safe(prev, 'onClose')
     this.scratch = null
+    this.appSettings = null
     this.activeId = id
     if (prev?.id !== id) this.safe(app, 'onOpen')
     log('shell', `open ${id}`)
@@ -196,6 +201,7 @@ export class Shell extends EventEmitter {
     const prev = this.activeApp
     if (prev) this.safe(prev, 'onClose')
     this.scratch = null
+    this.appSettings = null
     this.activeId = null
     this.blank = false
     this.homePath = path
@@ -268,6 +274,7 @@ export class Shell extends EventEmitter {
     if (this.scratch) return this.scratch
     const app = this.activeApp
     if (!app) return this.homeView()
+    if (this.appSettings && app.mod?.settings) return this.appSettingsView(app, app.mod.settings)
     if (app.loadError) return { text: `${app.title}\n\nfailed to load ${app.file.split('/').pop()}:\n${app.loadError}`, menu: this.menuFor(app) }
     if (!app.mod) return { text: `${app.title}\n\nERROR: ${app.error}`, menu: this.menuFor(app) }
     let view: View
@@ -343,7 +350,11 @@ export class Shell extends EventEmitter {
     return v
   }
 
-  /** Up to 8 app items, then Home, then other apps while there is room (10 total). */
+  /**
+   * The contextual menu for an app: its own items (≤8), "<title> settings" when it
+   * declares a schema, Home, then — per config.menu — pinned apps, apps of the same
+   * folder, or all apps, while there is room (10 total).
+   */
   menuFor(app: LoadedApp, custom: MenuItem[] = app.menu || []): MenuItem[] {
     const items: MenuItem[] = []
     const map = new Map<number, string>()
@@ -354,13 +365,73 @@ export class Shell extends EventEmitter {
       map.set(id, key)
       items.push({ id, label: typeof m === 'string' ? m : m.label ?? key })
     })
+    if (app.mod?.settings?.length) items.push({ id: MENU.APP_SETTINGS, label: `${app.title} settings`.slice(0, 32) })
     items.push({ id: MENU.HOME, label: 'Home' })
-    for (const [i, a] of this.registry.list().entries()) {
+    if (this.config.menu.settings) items.push({ id: MENU.SETTINGS, label: 'Settings' })
+    const all = this.registry.list()
+    const others: LoadedApp[] = []
+    for (const id of this.config.menu.pinned) { const a = all.find((x) => x.id === id); if (a && a.id !== app.id) others.push(a) }
+    if (this.config.menu.apps === 'folder') for (const a of all) if (a.group.toLowerCase() === app.group.toLowerCase() && a.id !== app.id && !others.includes(a)) others.push(a)
+    if (this.config.menu.apps === 'all') for (const a of all) if (a.id !== app.id && !others.includes(a)) others.push(a)
+    for (const a of others) {
       if (items.length >= MENU.MAX_ITEMS) break
-      if (a.id === app.id) continue
-      items.push({ id: MENU.APP_BASE + i, label: a.title })
+      items.push({ id: MENU.APP_BASE + all.indexOf(a), label: a.title })
     }
     return items
+  }
+
+  // ── app settings screens (from an app's `settings` schema) ─────────
+  appSettingsView(app: LoadedApp, schema: AppSetting[]): View {
+    const st = this.appSettings!
+    const state = app.state
+    const header = (t: string) => ({ type: 'text' as const, name: 'header', x: 0, y: 0, w: SCREEN.width, h: 34, padding: 4, textColor: 2, text: t })
+    const list = (items: string[]) => ({ type: 'list' as const, name: 'list', x: 0, y: 34, w: SCREEN.width, h: SCREEN.height - 34, items, capture: true })
+    if (st.screen === 'option') {
+      const sdef = schema[st.index]
+      if (sdef && 'options' in sdef) {
+        return { containers: [header(`${sdef.label}  ·  tap to choose  ·  double-tap: back`),
+          list(sdef.options.map((o) => `${o.value === state[sdef.key] ? '● ' : '○ '}${o.label}`))] }
+      }
+      st.screen = 'list'
+    }
+    const status = (this.safe(app, 'settingsStatus') as string | undefined) || ''
+    const rows = schema.map((sdef) => {
+      if ('action' in sdef) return `${sdef.label} ›`
+      const cur = sdef.options.find((o) => o.value === state[sdef.key])
+      return `${sdef.label}:  ${cur ? cur.label : String(state[sdef.key] ?? '—')}`
+    })
+    return { containers: [header(`${app.title} settings${status ? '  ·  ' + status : ''}  ·  double-tap: back`), list(rows)] }
+  }
+
+  /** Handle input while the app-settings screens are showing. */
+  private handleAppSettingsEvent(app: LoadedApp, ev: NormalizedEvent): void {
+    const st = this.appSettings!
+    const schema = app.mod?.settings || []
+    if (ev.type === 'double') {
+      if (st.screen === 'option') st.screen = 'list'
+      else this.appSettings = null
+      this.requestRender(); return
+    }
+    if (ev.type !== 'select') return
+    if (st.screen === 'list') {
+      const sdef = schema[ev.index]
+      if (!sdef) return
+      if ('action' in sdef) { this.safe(app, 'onSettingsAction', sdef.key); this.requestRender(); return }
+      st.screen = 'option'; st.index = ev.index
+    } else {
+      const sdef = schema[st.index]
+      if (sdef && 'options' in sdef) {
+        const o = sdef.options[ev.index]
+        if (o) {
+          app.state[sdef.key] = o.value
+          app.ctx?.save()
+          this.safe(app, 'onSettingsChange', sdef.key, o.value)
+          log('shell', `${app.id}.${sdef.key} = ${JSON.stringify(o.value)}`)
+        }
+      }
+      st.screen = 'list'
+    }
+    this.requestRender()
   }
 
   // ── events ─────────────────────────────────────────────────────────
@@ -411,6 +482,7 @@ export class Shell extends EventEmitter {
       if (ev.itemId === MENU.HOME) return this.home()  // top level
       if (ev.itemId === MENU.EXIT) return void this.exit()
       if (ev.itemId === MENU.SETTINGS) return this.openSettings()
+      if (ev.itemId === MENU.APP_SETTINGS) { if (app?.mod?.settings) { this.appSettings = { screen: 'list', index: 0 }; this.requestRender() } return }
       if (ev.itemId >= MENU.APP_BASE && ev.itemId < MENU.CUSTOM_BASE) {
         const a = this.registry.list()[ev.itemId - MENU.APP_BASE]
         if (a) this.open(a.id)
@@ -424,6 +496,8 @@ export class Shell extends EventEmitter {
       }
       return
     }
+
+    if (app && this.appSettings) { this.handleAppSettingsEvent(app, ev); return }
 
     if (app) {
       // Inside an app: the app first; then the in-app defaults for gestures it did not consume.

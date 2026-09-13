@@ -87,17 +87,19 @@ app can be:
 export default { title: 'Hello', render: () => 'Hello, glasses!' }
 ```
 
-Apps can be grouped into nested folders on the home screen — by sub-folder (`apps/time/clock.js`)
-or by declaring `group: 'Time'`. Demo apps: Hello, Clock, Stopwatch, System monitor (image
-sparkline), Hacker News (list → detail), Notes (inbox with webhook + JSON API), Voice memo
-(TypeScript, glasses mic → WAV), Mini clock (time in a corner with its own settings screens:
-position, big-digit style and size, brightness, fade-away, wake when looking up/down via IMU).
+Apps can be grouped into nested folders on the home screen — by sub-folder (`apps/time/…`)
+or by declaring `group: 'Time'`. Apps that declare a `settings` schema get their option
+screens rendered by the shell, reachable from the tap-and-hold menu. Demo apps: Hello,
+Clock (full screen / corner / big digits, brightness, fade-away, wake when looking up or down
+via IMU — all from its settings), Stopwatch, System monitor (image sparkline), Hacker News
+(list → detail), Notes (inbox with webhook + JSON API), Voice memo (TypeScript, glasses mic → WAV).
 
 ## Using it on the glasses
 
 - **Home**: native list of apps — swipe to move, tap to open.
 - **In an app**: gestures go to the app; double-tap returns home by default; tap-and-hold
-  opens the contextual menu with the app's actions, *Home* and the other apps.
+  opens the contextual menu with the app's actions, its settings and *Home* (other apps
+  only if you enable that in Settings — it stays short no matter how many apps you have).
 - **Gestures are yours to bind** — on the glasses via *Settings* (home menu, or tap then
   long-press anywhere) or with `PUT /api/config`: e.g. double-tap on the home screen →
   display off, or → jump to the mini clock. See [`docs/CONFIG.md`](docs/CONFIG.md).
