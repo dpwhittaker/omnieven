@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+    <title>Omni</title>
+    <style>
+      html, body {
+        margin: 0; height: 100%;
+        background: #232323; color: #E5E5E5;
+        font: 15px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        touch-action: manipulation; -webkit-text-size-adjust: 100%; overscroll-behavior: none;
+      }
+      #app { padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; height: 100%; }
+      h1 { font-size: 20px; margin: 0; letter-spacing: 0.04em; }
+      h1 small { font-weight: normal; color: #888; font-size: 12px; margin-left: 8px; }
+      label { display: block; font-size: 12px; color: #999; margin-bottom: 4px; }
+      input {
+        width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
+        border: 1px solid #444; background: #161616; color: #eee; font-size: 15px;
+      }
+      .row { display: flex; gap: 8px; }
+      button {
+        flex: 1; padding: 12px; border-radius: 8px; border: 0; font-size: 15px; font-weight: 600;
+        background: #3fbf7f; color: #0b1f14;
+      }
+      button.secondary { background: #3a3a3a; color: #ddd; }
+      .status { padding: 10px 12px; border-radius: 8px; font-size: 13px; background: #2e2e2e; }
+      .status.ok { background: #1e3b2b; color: #9ff0c0; }
+      .status.bad { background: #3b1e1e; color: #f0a0a0; }
+      .status.wait { background: #3b331e; color: #f0dc9f; }
+      pre {
+        flex: 1; margin: 0; padding: 10px; background: #111; border-radius: 8px; overflow: auto;
+        font: 11px/1.4 ui-monospace, Menlo, monospace; color: #9a9; white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Omni <small>server-driven glasses dashboard</small></h1>
+      <div id="status" class="status wait">Starting…</div>
+      <div>
+        <label for="url">Server WebSocket URL</label>
+        <input id="url" placeholder="wss://your-server.example.com/ws" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div>
+        <label for="token">Token</label>
+        <input id="token" placeholder="paste the token printed by the server" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </div>
+      <div class="row">
+        <button id="save">Save &amp; connect</button>
+        <button id="disconnect" class="secondary">Disconnect</button>
+      </div>
+      <pre id="log"></pre>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

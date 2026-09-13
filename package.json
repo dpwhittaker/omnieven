@@ -1,0 +1,23 @@
+{
+  "name": "omnieven",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Omni — server-side rendered, hot-reloadable dashboard for Even Realities G2 glasses",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch-path=server server/index.js",
+    "build:client": "npm --prefix client run build",
+    "pack": "node server/pack.js",
+    "postinstall": "npm --prefix client install --no-audit --no-fund"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@evenrealities/pretext": "^0.1.4",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.20.0"
+  }
+}

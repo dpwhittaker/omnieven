@@ -1,0 +1,30 @@
+# Self-host on a droplet / VPS:
+#   cp .env.example .env   # set PUBLIC_URL (and DOMAIN for automatic HTTPS)
+#   docker compose up -d
+# Caddy obtains a Let's Encrypt certificate for $DOMAIN and proxies to Omni.
+# Skip the caddy service if you already terminate TLS elsewhere.
+services:
+  omni:
+    build: .
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:7788}
+      OMNI_TOKEN: ${OMNI_TOKEN:-}
+    volumes:
+      - ./tabs:/app/tabs
+      - omni-data:/app/data
+    ports:
+      - "127.0.0.1:7788:7788"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["tls"]
+    ports: ["80:80", "443:443"]
+    command: caddy reverse-proxy --from ${DOMAIN:?set DOMAIN} --to omni:7788
+    volumes:
+      - caddy-data:/data
+
+volumes:
+  omni-data:
+  caddy-data:
