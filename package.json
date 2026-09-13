@@ -1,9 +1,9 @@
 {
   "name": "omnieven",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
-  "description": "Omni \u2014 server-side rendered, hot-reloadable dashboard for Even Realities G2 glasses",
+  "description": "Omni — server-side rendered, hot-reloadable dashboard for Even Realities G2 glasses",
   "scripts": {
     "start": "node server/index.ts",
     "dev": "node --watch-path=server --watch-path=shared server/index.ts",
