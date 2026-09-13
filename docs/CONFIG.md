@@ -38,7 +38,7 @@ the next gesture), `config` (Settings), `open:<appId>`, `next-app`, `prev-app`,
 ```bash
 curl -H "Authorization: Bearer $T" $A/config
 curl -H "Authorization: Bearer $T" -X PUT $A/config -H 'content-type: application/json' \
-     -d '{"gestures":{"root":{"double":"open:miniclock"}}}'   # merge; "none" removes a default
+     -d '{"gestures":{"root":{"double":"open:clock"}}}'   # merge; "none" removes a default
 curl -H "Authorization: Bearer $T" -X POST $A/action -d '{"action":"blank"}' -H 'content-type: application/json'
 curl -H "Authorization: Bearer $T" -X POST $A/settings                       # open Settings on the glasses
 ```
