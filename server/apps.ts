@@ -49,7 +49,11 @@ export interface LoadedApp {
   order: number
   refresh: number
   hidden: boolean
+  /** home-screen folder path, '' = top level */
+  group: string
   menu: MenuItem[]
+  /** group implied by the folder (before any `group` override in the module) */
+  folderGroup: string
   /** numeric menu id → app's own id, rebuilt every render by the shell */
   menuMap?: Map<number, string>
   state: Record<string, any>
@@ -72,6 +76,12 @@ function saveState(id: string, state: unknown): void {
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]*$/i
 const ENTRY_RE = /\.(m?js|ts)$/
+
+export interface GroupNode { name: string; path: string; groups: Map<string, GroupNode>; apps: LoadedApp[] }
+
+function normalizeGroup(g: string): string {
+  return g.split(/[\/\\]+/).map((p) => p.trim()).filter(Boolean).join('/')
+}
 
 export class AppRegistry extends EventEmitter {
   readonly apps = new Map<string, LoadedApp>()
@@ -98,10 +108,10 @@ export class AppRegistry extends EventEmitter {
     return true
   }
 
-  /** Map a top-level entry of the apps dir to {id, file} or null. */
-  entryFor(name: string): { id: string; file: string } | null {
+  /** Is this path an app entry? A .js/.ts file, or a directory with index.{ts,js,mjs}. */
+  entryAt(full: string): { id: string; file: string } | null {
+    const name = basename(full)
     if (name.startsWith('.') || name.startsWith('_') || name === 'node_modules') return null
-    const full = join(this.dir, name)
     try {
       const st = statSync(full)
       if (st.isDirectory()) {
@@ -116,17 +126,52 @@ export class AppRegistry extends EventEmitter {
     } catch {}
     return null
   }
+  /** Top-level convenience used by bootstrap(). */
+  entryFor(name: string): { id: string; file: string } | null { return this.entryAt(join(this.dir, name)) }
+
+  /**
+   * Walk the apps dir. A directory that is not itself an app is a group; its
+   * relative path becomes the default `group` of the apps inside it.
+   */
+  scan(dir = this.dir, group = ''): { id: string; file: string; group: string }[] {
+    const out: { id: string; file: string; group: string }[] = []
+    let names: string[] = []
+    try { names = readdirSync(dir) } catch { return out }
+    for (const name of names.sort()) {
+      if (name.startsWith('.') || name.startsWith('_') || name === 'node_modules') continue
+      const full = join(dir, name)
+      const e = this.entryAt(full)
+      if (e) { out.push({ ...e, group }); continue }
+      try { if (statSync(full).isDirectory()) out.push(...this.scan(full, group ? `${group}/${name}` : name)) } catch {}
+    }
+    return out
+  }
 
   async loadAll(): Promise<void> {
     mkdirSync(this.dir, { recursive: true })
-    for (const name of readdirSync(this.dir)) {
-      const e = this.entryFor(name)
-      if (e) await this.load(e.id, e.file)
+    await this.rescan()
+  }
+
+  /** Load new/changed entries, unload apps whose file is gone, flag duplicate ids. */
+  async rescan(): Promise<void> {
+    const found = this.scan()
+    const seen = new Map<string, string>()
+    for (const e of found) {
+      const dup = seen.get(e.id)
+      if (dup) { log('warn', `app id "${e.id}" used by both ${dup} and ${e.file}; ignoring the latter`); continue }
+      seen.set(e.id, e.file)
+      const cur = this.apps.get(e.id)
+      if (!cur || cur.file !== e.file || cur.folderGroup !== e.group) await this.load(e.id, e.file, e.group)
+    }
+    for (const [id, app] of this.apps) {
+      if (app.file.startsWith('<builtin')) continue
+      if (!seen.has(id)) this.unload(id)
     }
   }
 
-  async load(id: string, file: string): Promise<void> {
+  async load(id: string, file: string, folderGroup?: string): Promise<void> {
     const prev = this.apps.get(id)
+    if (folderGroup === undefined) folderGroup = prev?.folderGroup ?? this.groupOfPath(file)
     let mod: OmniApp
     try {
       const url = pathToFileURL(file).href + `?v=${Date.now()}`
@@ -149,6 +194,8 @@ export class AppRegistry extends EventEmitter {
     app.order = Number.isFinite(mod.order) ? (mod.order as number) : 100
     app.refresh = Number(mod.refresh) > 0 ? Number(mod.refresh) : 0
     app.hidden = !!mod.hidden
+    app.folderGroup = folderGroup
+    app.group = normalizeGroup(typeof mod.group === 'string' ? mod.group : folderGroup)
     app.menu = Array.isArray(mod.menu) ? mod.menu : []
     app.state = prev ? prev.state : loadState(id)
     app.mem = prev ? prev.mem : {}
@@ -165,7 +212,32 @@ export class AppRegistry extends EventEmitter {
   }
 
   private blank(id: string, file: string): LoadedApp {
-    return { id, file, dir: dirname(file), mod: null, title: id, order: 100, refresh: 0, hidden: false, menu: [], state: {}, mem: {}, timers: new Set(), error: null, loadError: null, ctx: null }
+    return { id, file, dir: dirname(file), mod: null, title: id, order: 100, refresh: 0, hidden: false, group: '', folderGroup: '', menu: [], state: {}, mem: {}, timers: new Set(), error: null, loadError: null, ctx: null }
+  }
+
+  /** Group implied by where a file sits under apps/. */
+  private groupOfPath(file: string): string {
+    const rel = dirname(file).slice(this.dir.length + 1)
+    const parts = rel ? rel.split(sep) : []
+    // a directory app (…/<id>/index.js) does not count its own folder
+    if (parts.length && this.entryAt(join(this.dir, ...parts))) parts.pop()
+    return parts.join('/')
+  }
+
+  /** Apps grouped for the home screen: nested folders + apps at each level. */
+  tree(): GroupNode {
+    const root: GroupNode = { name: '', path: '', groups: new Map(), apps: [] }
+    for (const app of this.list()) {
+      let node = root
+      for (const part of app.group ? app.group.split('/') : []) {
+        const key = part.toLowerCase()   // 'time' and 'Time' are one folder; first spelling wins
+        let next = node.groups.get(key)
+        if (!next) { next = { name: part, path: node.path ? `${node.path}/${part}` : part, groups: new Map(), apps: [] }; node.groups.set(key, next) }
+        node = next
+      }
+      node.apps.push(app)
+    }
+    return root
   }
 
   private teardown(app: LoadedApp): void {
@@ -272,20 +344,27 @@ export class AppRegistry extends EventEmitter {
     const full = join(dir, filename)
     // New directory → watch it too (and its children).
     try { if (statSync(full).isDirectory()) this.watchDir(full) } catch {
-      // Deleted directory: drop its watcher.
       const w = this.watchers.get(full)
       if (w) { w.close(); this.watchers.delete(full) }
     }
-    // Which top-level app entry does this belong to?
-    const rel = full.slice(this.dir.length + 1)
-    const top = rel.split(sep)[0]
-    if (!top || top.startsWith('.') || top === 'node_modules') return
-    const prev = this.reloadTimers.get(top)
+    // Which app owns this path? Walk up until an app entry (file, or a
+    // directory with index.*) is found; otherwise it is a group-level change.
+    // Walk top-down so helper files inside an app folder map to that app
+    // rather than being mistaken for apps of their own.
+    let owner: string | null = null
+    const parts = full.slice(this.dir.length + 1).split(sep)
+    for (let i = 1; i <= parts.length; i++) {
+      const e = this.entryAt(join(this.dir, ...parts.slice(0, i)))
+      if (e) { owner = e.id; break }
+    }
+    const key = owner ?? '*'
+    const prev = this.reloadTimers.get(key)
     if (prev) clearTimeout(prev)
-    this.reloadTimers.set(top, setTimeout(() => {
-      const e = this.entryFor(top)
-      if (e) void this.load(e.id, e.file)
-      else this.unload(basename(top, extname(top)))
+    this.reloadTimers.set(key, setTimeout(() => {
+      this.reloadTimers.delete(key)
+      const app = owner ? this.apps.get(owner) : null
+      if (app && existsSync(app.file)) void this.load(app.id, app.file)
+      else void this.rescan()
     }, 150))
   }
 }

@@ -79,6 +79,12 @@ export interface OmniApp<S = Record<string, any>, M = Record<string, any>> {
   title?: string
   /** sort key on the home list, lower first (default 100) */
   order?: number
+  /**
+   * Folder on the home screen, e.g. 'Tools' or 'Tools/Time' (nested). Defaults
+   * to the app's sub-folder under apps/ ('' = top level). Apps in the same
+   * group are listed together; the home list drills into groups.
+   */
+  group?: string
   /** re-render every N ms while on screen */
   refresh?: number
   /** hide from the home list (still reachable via ctx.open / API) */

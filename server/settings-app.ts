@@ -15,7 +15,7 @@ const SCOPES: { id: Scope; label: string; hint: string }[] = [
 export interface SettingsHost {
   config(): OmniConfig
   setBinding(scope: Scope, gesture: string, action: Action | null): void
-  apps(): { id: string; title: string }[]
+  apps(): { id: string; title: string; group: string }[]
   close(): void
 }
 
@@ -51,7 +51,7 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
         case 'action':
           return { containers: [header(`${m.scope}: "${m.gesture}" does…`), list(ACTION_CHOICES.map((a) => a.label))] }
         case 'app':
-          return { containers: [header(`"${m.gesture}" opens which app?`), list(host.apps().map((a) => a.title))] }
+          return { containers: [header(`"${m.gesture}" opens which app?`), list(host.apps().map((a) => (a.group ? `${a.group} / ` : '') + a.title))] }
       }
     },
 

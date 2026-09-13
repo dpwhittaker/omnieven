@@ -10,10 +10,10 @@ function fmt(ms) {
   const m = Math.floor(t / 60000), s = Math.floor((t % 60000) / 1000), c = Math.floor((t % 1000) / 100)
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${c}`
 }
-/** @param {import('../shared/app.ts').AppContext<State, Mem>} ctx */
+/** @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
 const elapsed = (ctx) => ctx.state.elapsed + (ctx.mem.startedAt ? Date.now() - ctx.mem.startedAt : 0)
 
-/** @type {import('../shared/app.ts').OmniApp<State, Mem>} */
+/** @type {import('../../shared/app.ts').OmniApp<State, Mem>} */
 export default {
   title: 'Stopwatch',
   order: 2,

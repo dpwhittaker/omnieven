@@ -8,7 +8,7 @@ import type { HttpRequest, HttpResponse } from '../shared/app.ts'
 import type { Action, OmniConfig } from '../shared/config.ts'
 import { normalizeEvent } from './protocol.ts'
 import { compile, SCREEN } from './renderer.ts'
-import { AppRegistry, type LoadedApp } from './apps.ts'
+import { AppRegistry, type GroupNode, type LoadedApp } from './apps.ts'
 import type { Connection } from './connection.ts'
 import { loadConfig, mergeConfig, saveConfig } from './config-store.ts'
 import { GestureTracker, matchBinding } from './gestures.ts'
@@ -22,7 +22,7 @@ const RENDER_DEBOUNCE_MS = 30
 const DEFAULT_NOTIFY_MS = 5000
 
 interface Overlay { text: string; title?: string; timer: NodeJS.Timeout }
-export interface AppSummary { id: string; title: string; order: number; refresh: number; error: string | null; active: boolean; menu: MenuItem[]; file: string }
+export interface AppSummary { id: string; title: string; order: number; refresh: number; error: string | null; active: boolean; menu: MenuItem[]; file: string; group: string }
 
 export class Shell extends EventEmitter {
   readonly connections = new Set<Connection>()
@@ -35,6 +35,8 @@ export class Shell extends EventEmitter {
   lastView: View | null = null
   /** display off: blank screen until the next gesture */
   blank = false
+  /** folder currently shown on the home screen, e.g. ['Tools', 'Time'] */
+  homePath: string[] = []
   config: OmniConfig = loadConfig()
   readonly registry: AppRegistry
   private gestures = new GestureTracker()
@@ -73,7 +75,7 @@ export class Shell extends EventEmitter {
     await this.registry.registerBuiltin(SETTINGS_ID, makeSettingsApp({
       config: () => this.config,
       setBinding: (scope, gesture, action) => this.setBinding(scope, gesture, action),
-      apps: () => this.registry.list().map((a) => ({ id: a.id, title: a.title })),
+      apps: () => this.registry.list().map((a) => ({ id: a.id, title: a.title, group: a.group })),
       close: () => this.restore(),
     }))
     this.registry.bootstrap()
@@ -98,7 +100,7 @@ export class Shell extends EventEmitter {
 
   /** Run a configured action. Returns false for unknown actions. */
   runAction(action: Action): boolean {
-    if (action === 'home') { this.blank = false; this.home(); return true }
+    if (action === 'home') { this.blank = false; this.home(this.activeApp ? this.activeApp.group.split('/').filter(Boolean) : []); return true }
     if (action === 'exit') { void this.exit(); return true }
     if (action === 'quit') { void this.broadcast('shutdown', { mode: 0 }); return true }
     if (action === 'blank') { this.setBlank(!this.blank); return true }
@@ -171,7 +173,7 @@ export class Shell extends EventEmitter {
   appSummaries(): AppSummary[] {
     return this.registry.list().map((a) => ({
       id: a.id, title: a.title, order: a.order, refresh: a.refresh, error: a.loadError || a.error,
-      active: this.isActive(a.id), menu: a.menu, file: a.file,
+      active: this.isActive(a.id), menu: a.menu, file: a.file, group: a.group,
     }))
   }
 
@@ -190,12 +192,13 @@ export class Shell extends EventEmitter {
     this.emit('nav', { active: id })
   }
 
-  home(): void {
+  home(path: string[] = []): void {
     const prev = this.activeApp
     if (prev) this.safe(prev, 'onClose')
     this.scratch = null
     this.activeId = null
     this.blank = false
+    this.homePath = path
     this.syncRefresh()
     this.requestRender()
     this.emit('nav', { active: null })
@@ -275,16 +278,48 @@ export class Shell extends EventEmitter {
     return this.withMenu(view, app)
   }
 
+  /** The group node for the current homePath (falls back towards the root if a folder vanished). */
+  private homeNode(): GroupNode {
+    let node = this.registry.tree()
+    const ok: string[] = []
+    for (const part of this.homePath) {
+      const next = node.groups.get(part.toLowerCase())
+      if (!next) break
+      node = next; ok.push(next.name)
+    }
+    this.homePath = ok
+    return node
+  }
+
+  /** Rows of the home list: [back], folders…, apps… */
+  private homeRows(): ({ kind: 'back' } | { kind: 'group'; node: GroupNode } | { kind: 'app'; app: LoadedApp })[] {
+    const node = this.homeNode()
+    const rows: ({ kind: 'back' } | { kind: 'group'; node: GroupNode } | { kind: 'app'; app: LoadedApp })[] = []
+    if (this.homePath.length) rows.push({ kind: 'back' })
+    for (const g of [...node.groups.values()].sort((a, b) => a.name.localeCompare(b.name))) rows.push({ kind: 'group', node: g })
+    for (const app of node.apps) rows.push({ kind: 'app', app })
+    return rows
+  }
+
   homeView(): ExplicitView {
-    const apps = this.registry.list()
-    const items = apps.length ? apps.map((a) => (a.loadError || a.error ? `! ${a.title}` : a.title)) : ['(no apps yet)']
+    const rows = this.homeRows()
+    const total = this.registry.list().length
+    const items = rows.map((r) =>
+      r.kind === 'back' ? '‹ back' :
+      r.kind === 'group' ? `${r.node.name} /` :
+      (r.app.loadError || r.app.error ? `! ${r.app.title}` : r.app.title))
+    if (!items.length) items.push('(no apps yet)')
+    const where = this.homePath.length ? this.homePath.join(' / ') : 'Omni'
     return {
       containers: [
         { type: 'text', name: 'header', x: 0, y: 0, w: SCREEN.width, h: 34, padding: 4, textColor: 2,
-          text: `Omni  ·  ${apps.length} app${apps.length === 1 ? '' : 's'}  ·  tap to open` },
+          text: `${where}  ·  ${total} app${total === 1 ? '' : 's'}  ·  tap to open` },
         { type: 'list', name: 'apps', x: 0, y: 34, w: SCREEN.width, h: SCREEN.height - 34, items, capture: true },
       ],
-      menu: [{ id: MENU.SETTINGS, label: 'Settings' }, { id: MENU.EXIT, label: 'Exit Omni' }],
+      menu: [
+        ...(this.homePath.length ? [{ id: MENU.HOME, label: 'Top level' }] : []),
+        { id: MENU.SETTINGS, label: 'Settings' }, { id: MENU.EXIT, label: 'Exit Omni' },
+      ],
     }
   }
 
@@ -373,7 +408,7 @@ export class Shell extends EventEmitter {
     if (this.blank) { if (keys.length) this.setBlank(false); return }
 
     if (ev.type === 'menu') {
-      if (ev.itemId === MENU.HOME) return this.home()
+      if (ev.itemId === MENU.HOME) return this.home()  // top level
       if (ev.itemId === MENU.EXIT) return void this.exit()
       if (ev.itemId === MENU.SETTINGS) return this.openSettings()
       if (ev.itemId >= MENU.APP_BASE && ev.itemId < MENU.CUSTOM_BASE) {
@@ -408,8 +443,11 @@ export class Shell extends EventEmitter {
       if (b) { this.gestures.reset(); log('shell', `gesture root.${b.key} → ${b.action}`); this.runAction(b.action); return }
     }
     if (ev.type === 'select' && !this.scratch) {
-      const a = this.registry.list()[ev.index]
-      if (a) this.open(a.id)
+      const row = this.homeRows()[ev.index]
+      if (!row) return
+      if (row.kind === 'back') this.home(this.homePath.slice(0, -1))
+      else if (row.kind === 'group') this.home([...this.homePath, row.node.name])
+      else this.open(row.app.id)
     }
   }
 

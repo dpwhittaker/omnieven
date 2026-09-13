@@ -6,6 +6,17 @@ save a file and the glasses update within a second; delete it and the app disapp
 init and render errors are shown on the glasses instead of crashing anything. The types live
 in [`shared/app.ts`](../shared/app.ts) and are the authoritative reference.
 
+**Folders on the home screen.** Apps are grouped in nested folders that the home list drills
+into (`Time /` → `‹ back`, Clock, Stopwatch…). A group comes from either:
+
+- the sub-folder the app sits in — `apps/time/clock.js` → folder *time*,
+  `apps/tools/net/ping.js` → *tools / net*; a folder containing `index.js` is an app, not a group;
+- or an explicit `group: 'Time'` / `group: 'Tools/Net'` in the module, which wins.
+
+Folder names are matched case-insensitively. App ids are the file/folder name and must be
+unique across all folders. Leaving an app with *home* returns to its folder; the contextual
+menu's *Top level* goes to the root.
+
 ```js
 // apps/weather.js
 /** @type {import('../shared/app.ts').OmniApp<{ units: 'C'|'F', city?: string }, { wx?: any }>} */
@@ -95,7 +106,9 @@ that change slowly. The renderer diffs for you; just return the whole view every
 
 Images: `png` accepts encoded PNG/JPEG bytes (the phone converts to 4-bit grey and
 cover-fits them to the container) or a `new ctx.Canvas(w, h)` — a greyscale surface with
-`rect, frame, line, circle, text (tiny 3×5 font), sparkline, toPng()`.
+`rect, frame, line, circle, text (tiny 3×5 font), digits (scalable 5×7 digits — the only way
+to draw *bigger* text, since the glasses have one font size; size with `ctx.ui.digitsSize`),
+sparkline, toPng()`.
 
 Helpers on `ctx.ui`:
 
@@ -104,6 +117,16 @@ Helpers on `ctx.ui`:
 - `wrap(text, widthPx)`, `paginate(text)`, `fit(text, widthPx)`, `measure(text, widthPx)` — firmware-accurate metrics
 - `bar(fraction, cells)` — `━━━───` progress bar; `spread(left, right)` — two-column line
 - `clock(date)`, `LINE` (27), `linesFor(heightPx)`
+
+## In-app settings screens
+
+Apps with options should expose them both as state (`PUT /api/apps/<id>/state` or
+`onMessage`) and as list screens on the glasses. `demo/miniclock/settings.js` is a
+copy-paste helper for the latter: describe the options as a schema, render
+`settingsRows()` / `optionRows()` into a list container, and feed `select` events to
+`settingsSelect()`; double-tap steps back (consume it with `return true`). See
+`demo/miniclock/index.js` for the full pattern including IMU-driven behaviour (fade away,
+wake when looking up/down) and a calibration action.
 
 ## Context (`ctx`)
 

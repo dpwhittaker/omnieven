@@ -63,6 +63,32 @@ const FONT: Record<string, string[]> = {
   'Y': ['101', '101', '010', '010', '010'], 'Z': ['111', '001', '010', '100', '111'],
 }
 
+// 5x7 glyphs for big, scalable digits (clock faces): 0-9 : . - space A P M
+const DIGITS: Record<string, string[]> = {
+  '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+  '3': ['11111', '00010', '00100', '00010', '00001', '10001', '01110'],
+  '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+  '5': ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+  '6': ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
+  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  '9': ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+  ':': ['00000', '00100', '00100', '00000', '00100', '00100', '00000'],
+  '.': ['00000', '00000', '00000', '00000', '00000', '00100', '00100'],
+  '-': ['00000', '00000', '00000', '11111', '00000', '00000', '00000'],
+  ' ': ['00000', '00000', '00000', '00000', '00000', '00000', '00000'],
+  'A': ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
+  'P': ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+  'M': ['10001', '11011', '10101', '10101', '10001', '10001', '10001'],
+}
+/** Pixel size of a string drawn with Canvas.digits(). Cells are 6x8 units (1 unit gap). */
+export function digitsSize(str: string, scale = 1): { width: number; height: number } {
+  const n = String(str).length
+  return { width: Math.max(0, n * 6 * scale - scale), height: 7 * scale }
+}
+
 /**
  * Greyscale drawing surface. Pixel values are 0 (off/transparent on the
  * glasses) to 255 (brightest green). Image containers are capped by firmware
@@ -124,6 +150,18 @@ export class Canvas {
         if (g[r][c] === '1') this.rect(cx + c * scale, y + r * scale, scale, scale, v)
       }
       cx += 4 * scale
+    }
+    return this
+  }
+  /** Big 5x7 digits (0-9 : . - A P M), `scale` px per unit. See digitsSize(). */
+  digits(x: number, y: number, str: string, v = 255, scale = 1): this {
+    let cx = x
+    for (const ch of String(str).toUpperCase()) {
+      const g = DIGITS[ch] || DIGITS[' ']
+      for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) {
+        if (g[r][c] === '1') this.rect(cx + c * scale, y + r * scale, scale, scale, v)
+      }
+      cx += 6 * scale
     }
     return this
   }

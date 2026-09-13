@@ -87,9 +87,11 @@ app can be:
 export default { title: 'Hello', render: () => 'Hello, glasses!' }
 ```
 
-Demo apps: Hello, Clock, Stopwatch, System monitor (image sparkline), Hacker News (list →
-detail), Notes (inbox with webhook + JSON API), Voice memo (TypeScript, glasses mic → WAV),
-Mini clock (time in the corner, nothing else lit).
+Apps can be grouped into nested folders on the home screen — by sub-folder (`apps/time/clock.js`)
+or by declaring `group: 'Time'`. Demo apps: Hello, Clock, Stopwatch, System monitor (image
+sparkline), Hacker News (list → detail), Notes (inbox with webhook + JSON API), Voice memo
+(TypeScript, glasses mic → WAV), Mini clock (time in a corner with its own settings screens:
+position, big-digit style and size, brightness, fade-away, wake when looking up/down via IMU).
 
 ## Using it on the glasses
 

@@ -4,6 +4,7 @@
 // Usage: node scripts/fake-client.mjs [ws://localhost:7788/ws] [token]
 //   keys: t=tap d=double u=up w=down l=longpress r=release e=foreground-enter x=system-exit
 //         s<N>=select list item N  m<N>=menu item N  q=quit  (one per line; exits when stdin closes)
+//         {…} = raw EvenHubEvent JSON, e.g. {"sysEvent":{"eventType":8,"imuData":{"x":0,"y":1,"z":0}}}
 import WebSocket from 'ws'
 import { createInterface } from 'node:readline'
 import { readFileSync, existsSync } from 'node:fs'
@@ -62,6 +63,7 @@ rl.on('close', () => process.exit(0))
 rl.on('line', (line) => {
   const k = line.trim()
   if (k === 'q') process.exit(0)
+  if (k.startsWith('{')) { try { send(JSON.parse(k)) } catch (e) { console.error('bad json', e.message) } return }
   if (k === 't') send({ sysEvent: {} })
   if (k === 'd') send({ sysEvent: { eventType: 3 } })
   if (k === 'u') send({ textEvent: { eventType: 1 } })

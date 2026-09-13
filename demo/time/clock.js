@@ -1,7 +1,7 @@
 // Clock — render() returns a view, `refresh` re-renders it every second.
 // Only the changed text is sent to the glasses (no flicker).
 
-/** @type {import('../shared/app.ts').OmniApp<{ hour12?: boolean }>} */
+/** @type {import('../../shared/app.ts').OmniApp<{ hour12?: boolean }>} */
 export default {
   title: 'Clock',
   order: 1,

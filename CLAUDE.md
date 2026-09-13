@@ -8,7 +8,9 @@ usually be asked to **add or change an app** or to **put something on the glasse
 
 - The glasses show whatever the server's *active app* returns from `render(ctx)`. Apps are
   files in `apps/` (git-ignored; the user's own repo). `demo/` is the starter set — never
-  edit `demo/` to change what the user sees; edit or add files in `apps/`.
+  edit `demo/` to change what the user sees; edit or add files in `apps/`. Sub-folders of
+  `apps/` (or `group: 'Name/Sub'`) become folders on the home screen; a folder with
+  `index.js` is a single app with helpers.
 - Saving a file in `apps/` hot-reloads it (~1 s). No build, no restart. Errors render on the
   glasses and appear in `GET /api/logs`.
 - Views are declarative (`string` | `{text}` | `{list}` | `{containers:[…]}`); the server diffs
@@ -52,6 +54,8 @@ curl -s -H "Authorization: Bearer $T" -X POST $A/apps/notes/message -H 'content-
    ≤1000 chars per text container, lists ≤20 × 64 chars, one capture container. Use
    `ctx.ui.fit/wrap/paginate` for text that may overflow; the capture container scrolls.
 4. Keep `render()` pure and fast; do I/O in `init`/timers/handlers and call `ctx.render()`.
+   Apps with options: keep them in `ctx.state`, accept them in `onMessage`, and offer list
+   screens on the glasses (copy `demo/miniclock/settings.js`).
 5. Test with the fake client and `GET /api/screen`; then confirm on hardware if available.
 
 ## Server changes

@@ -4,6 +4,7 @@
 import { getTextWidth, measureTextWrap, pxTruncate } from '@evenrealities/pretext'
 import { SCREEN } from './renderer.ts'
 import type { TextContainer } from '../shared/view.ts'
+export { digitsSize } from './png.ts'
 
 export const LINE = SCREEN.lineHeight
 export { getTextWidth, pxTruncate }
