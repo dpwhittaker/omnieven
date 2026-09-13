@@ -1,31 +1,33 @@
 # Wire protocol (server ⇄ glasses client)
 
-WebSocket at `/ws?token=…`. JSON text frames; binary frames are raw PCM audio
-(16 kHz, s16le, mono) from the client while the mic is on.
+Defined once in [`shared/protocol.ts`](../shared/protocol.ts); the server (`server/`), the
+glasses client (`client/`) and apps all import it, and `npm run typecheck` fails if either side
+drifts (the client's command switch is exhaustive over `CmdOp`).
+
+WebSocket at `/ws?token=…`. JSON text frames; binary frames are raw PCM audio (16 kHz,
+s16le, mono) from the client while the mic is on.
 
 ## Client → server
 | frame | when |
 |---|---|
-| `{t:'hello', token, client:{version,sdk}, device, user, launchSource, pageCreated}` | on connect; server replies by rendering the current view |
-| `{t:'event', ev}` | every `onEvenHubEvent` envelope (list/text/sys/menu). Server normalises it. |
-| `{t:'device', status}` | `onDeviceStatusChanged` |
-| `{t:'location', loc}` | `onAppLocationChanged` |
-| `{t:'launch', source}` | `onLaunchSource` |
+| `{t:'hello', token, client:{version,sdk}, device, user, launchSource, pageCreated}` | on connect; the server answers by rendering the current view |
+| `{t:'event', ev}` | every `onEvenHubEvent` envelope (list/text/sys/menu); normalised server-side |
+| `{t:'device', status}` / `{t:'location', loc}` / `{t:'launch', source}` | bridge callbacks |
 | `{t:'result', id, ok, value?, error?}` | reply to a command |
 | `{t:'log', level, msg}` | client console relay |
 
-## Server → client
-| frame | effect |
+## Server → client (`{t:'cmd', id, op, args}`)
+| op | effect |
 |---|---|
-| `{t:'cmd', id, op:'page', args}` | `createStartUpPageContainer` on first use, else `rebuildPageContainer` |
-| `{t:'cmd', id, op:'text', args}` | `textContainerUpgrade` |
-| `{t:'cmd', id, op:'image', args:{containerID, containerName, png}}` | `updateImageRawData` (PNG bytes, base64) |
-| `op:'audio' {on, source}` / `op:'imu' {on, pace}` / `op:'location' {once|on,…}` | device features |
-| `op:'storage.get' {key}` / `op:'storage.set' {key,value}` | Even App localStorage (the client keeps its own profile under `omni.url` / `omni.token`) |
-| `op:'shutdown' {mode}` | `shutDownPageContainer` (1 = system dialog) |
-| `op:'reload'` | reload the WebView |
-| `{t:'ping'}` | keepalive |
+| `page` | `createStartUpPageContainer` on first use, then `rebuildPageContainer` |
+| `text` | `textContainerUpgrade` (in-place, flicker-free) |
+| `image` | `updateImageRawData` with base64 PNG/JPEG bytes |
+| `audio {on, source}` / `imu {on, pace}` / `location {once|on,…}` | device features |
+| `storage.get {key}` / `storage.set {key, value}` | Even App localStorage (the client keeps its own profile under `omni.url` / `omni.token`) |
+| `shutdown {mode}` | `shutDownPageContainer` (1 = system dialog, 0 = immediate) |
+| `reload` | reload the WebView |
 
-Commands are executed strictly one at a time on the client (the SDK shares one BLE
-link) and each is wrapped in an 8 s timeout. The server likewise serialises per
-connection and coalesces renders, keeping only the newest requested view.
+Commands run strictly one at a time on the client (the SDK shares one BLE link) with an
+8 s timeout each. The server serialises per connection and coalesces renders, keeping only
+the newest requested view. Several clients (glasses + simulator) can be connected at once;
+each gets its own diff state.

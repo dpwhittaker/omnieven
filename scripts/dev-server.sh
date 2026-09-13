@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 PIDF=/tmp/omni.pid
 stop() { [ -f $PIDF ] && kill "$(cat $PIDF)" 2>/dev/null || true; rm -f $PIDF; }
 start() {
-  PORT="${PORT:-7788}" PUBLIC_URL="${PUBLIC_URL:-http://localhost:${PORT:-7788}}" nohup node server/index.js > /tmp/omni.log 2>&1 &
+  PORT="${PORT:-7788}" PUBLIC_URL="${PUBLIC_URL:-http://localhost:${PORT:-7788}}" nohup node server/index.ts > /tmp/omni.log 2>&1 &
   echo $! > $PIDF; sleep 1.5; head -12 /tmp/omni.log
 }
 case "${1:-restart}" in

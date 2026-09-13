@@ -2,12 +2,15 @@
 // container drawn with the built-in Canvas (sparkline of CPU load).
 import os from 'node:os'
 
+/** @typedef {{ history: number[], last: {idle: number, total: number}, cpu: number }} Mem */
+
 function cpuSnapshot() {
   let idle = 0, total = 0
-  for (const c of os.cpus()) { for (const k in c.times) total += c.times[k]; idle += c.times.idle }
+  for (const c of os.cpus()) { total += c.times.user + c.times.nice + c.times.sys + c.times.idle + c.times.irq; idle += c.times.idle }
   return { idle, total }
 }
 
+/** @type {import('../shared/app.ts').OmniApp<{}, Mem>} */
 export default {
   title: 'System',
   order: 3,
@@ -16,7 +19,7 @@ export default {
   init(ctx) {
     ctx.mem.history ??= []
     ctx.mem.last = cpuSnapshot()
-    ctx.mem.cpu = 0
+    ctx.mem.cpu ??= 0
     ctx.setInterval(() => {
       const now = cpuSnapshot()
       const dTotal = now.total - ctx.mem.last.total, dIdle = now.idle - ctx.mem.last.idle
@@ -47,7 +50,7 @@ export default {
           `up   ${Math.floor(up / 86400)}d ${Math.floor((up % 86400) / 3600)}h ${Math.floor((up % 3600) / 60)}m`,
           `cores ${os.cpus().length}  ·  ${(os.totalmem() / 2 ** 30).toFixed(1)} GB`,
         ].join('\n') },
-        { type: 'image', name: 'graph', x: 292, y: 20, w: 280, h: 100, canvas },
+        { type: 'image', name: 'graph', x: 292, y: 20, w: 280, h: 100, png: canvas },
         { type: 'text', name: 'hint', x: 292, y: 130, w: 284, h: 60, padding: 6, textColor: 1, text: 'cpu history, 2 s samples' },
       ],
     }

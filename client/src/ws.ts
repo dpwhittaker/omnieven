@@ -1,10 +1,12 @@
 // Reconnecting WebSocket with exponential backoff. Binary frames carry raw
 // PCM when the mic is on; everything else is JSON text.
 
+import type { ServerFrame } from './protocol'
+
 export type WsHandlers = {
   onOpen: () => void
   onClose: (reason: string) => void
-  onJson: (frame: any) => void
+  onJson: (frame: ServerFrame) => void
 }
 
 export class OmniSocket {

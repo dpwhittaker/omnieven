@@ -1,18 +1,19 @@
-// Text layout helpers for tabs. Measurements come from @evenrealities/pretext,
+// Text layout helpers for apps. Measurements come from @evenrealities/pretext,
 // which replicates the firmware's LVGL font metrics, so wrapping and
 // truncation match what the glasses actually draw.
 import { getTextWidth, measureTextWrap, pxTruncate } from '@evenrealities/pretext'
-import { SCREEN } from './renderer.js'
+import { SCREEN } from './renderer.ts'
+import type { TextContainer } from '../shared/view.ts'
 
 export const LINE = SCREEN.lineHeight
 export { getTextWidth, pxTruncate }
 
 /** Pixel width → how many text lines fit in `heightPx`. */
-export function linesFor(heightPx, padding = 0) { return Math.max(1, Math.floor((heightPx - 2 * padding) / LINE)) }
+export function linesFor(heightPx: number, padding = 0): number { return Math.max(1, Math.floor((heightPx - 2 * padding) / LINE)) }
 
 /** Wrap `text` to `widthPx` and return the resulting lines (firmware rules). */
-export function wrap(text, widthPx) {
-  const out = []
+export function wrap(text: string, widthPx: number): string[] {
+  const out: string[] = []
   for (const para of String(text ?? '').split('\n')) {
     if (!para) { out.push(''); continue }
     const words = para.split(/(\s+)/)
@@ -39,27 +40,27 @@ export function wrap(text, widthPx) {
 }
 
 /** Split long text into screen-sized pages of wrapped lines. */
-export function paginate(text, { widthPx = SCREEN.width - 8, lines = linesFor(SCREEN.height, 4) } = {}) {
+export function paginate(text: string, { widthPx = SCREEN.width - 8, lines = linesFor(SCREEN.height, 4) } = {}): string[] {
   const all = wrap(text, widthPx)
-  const pages = []
+  const pages: string[] = []
   for (let i = 0; i < all.length; i += lines) pages.push(all.slice(i, i + lines).join('\n'))
   return pages.length ? pages : ['']
 }
 
 /** Fit a single line into `widthPx`, adding an ellipsis when needed. */
-export function fit(text, widthPx) { return pxTruncate(String(text ?? ''), widthPx) }
+export function fit(text: string | number, widthPx: number): string { return pxTruncate(String(text ?? ''), widthPx) }
 
 /** Measure wrapped height in px. */
-export function measure(text, widthPx) { return measureTextWrap(String(text ?? ''), widthPx) }
+export function measure(text: string, widthPx: number) { return measureTextWrap(String(text ?? ''), widthPx) }
 
 /** Progress bar built from block characters the firmware font has. */
-export function bar(fraction, cells = 20, fill = '━', empty = '─') {
+export function bar(fraction: number, cells = 20, fill = '━', empty = '─'): string {
   const n = Math.round(Math.max(0, Math.min(1, fraction)) * cells)
   return fill.repeat(n) + empty.repeat(cells - n)
 }
 
 /** Two-column line: left text, right text pushed to `widthPx` using spaces. */
-export function spread(left, right, widthPx = SCREEN.width - 8) {
+export function spread(left: string | number, right: string | number, widthPx = SCREEN.width - 8): string {
   left = String(left ?? ''); right = String(right ?? '')
   const space = getTextWidth(' ') || 6
   let gap = widthPx - getTextWidth(left) - getTextWidth(right)
@@ -68,7 +69,7 @@ export function spread(left, right, widthPx = SCREEN.width - 8) {
 }
 
 /** Stack N rows of full-width text containers (equal heights). */
-export function rows(texts, { capture = 0, padding = 4, gap = 0 } = {}) {
+export function rows(texts: string[], { capture = 0, padding = 4, gap = 0 } = {}): TextContainer[] {
   const h = Math.floor((SCREEN.height - gap * (texts.length - 1)) / texts.length)
   return texts.map((text, i) => ({
     type: 'text', name: `row${i + 1}`, x: 0, y: i * (h + gap), w: SCREEN.width, h,
@@ -77,13 +78,13 @@ export function rows(texts, { capture = 0, padding = 4, gap = 0 } = {}) {
 }
 
 /** Header line + body area. Body is the capture container (scrolls). */
-export function headerBody(header, body, { headerHeight = 36, bodyOpts = {} } = {}) {
+export function headerBody(header: string, body: string, { headerHeight = 36, bodyOpts = {} as Partial<TextContainer> } = {}): TextContainer[] {
   return [
     { type: 'text', name: 'header', x: 0, y: 0, w: SCREEN.width, h: headerHeight, text: header, padding: 4, textColor: 2 },
     { type: 'text', name: 'body', x: 0, y: headerHeight, w: SCREEN.width, h: SCREEN.height - headerHeight, text: body, padding: 4, capture: true, ...bodyOpts },
   ]
 }
 
-export function clock(date = new Date(), { seconds = false, hour12 = false } = {}) {
+export function clock(date = new Date(), { seconds = false, hour12 = false } = {}): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}), hour12 })
 }

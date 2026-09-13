@@ -1,4 +1,7 @@
-// Clock — the simplest possible tab: render() returns text, refresh re-renders.
+// Clock — render() returns a view, `refresh` re-renders it every second.
+// Only the changed text is sent to the glasses (no flicker).
+
+/** @type {import('../shared/app.ts').OmniApp<{ hour12?: boolean }>} */
 export default {
   title: 'Clock',
   order: 1,
@@ -10,13 +13,12 @@ export default {
     const now = new Date()
     const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12 })
     const date = now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-    const dev = ctx.device
-    const batt = dev?.status?.batteryLevel != null ? `  ·  glasses ${dev.status.batteryLevel}%` : ''
+    const batt = ctx.device?.status?.batteryLevel
     return {
       containers: ctx.ui.rows([
         `\n${time}`,
         date,
-        `${ctx.ui.spread('double-tap: home', 'tap: toggle 12/24h')}${batt}`,
+        ctx.ui.spread('tap: 12/24h  ·  double-tap: home', batt != null ? `glasses ${batt}%` : ''),
       ], { capture: 0 }),
     }
   },

@@ -8,7 +8,7 @@ import { defineConfig } from 'vite'
 // files, so it is stripped from the generated HTML.
 export default defineConfig({
   base: './',
-  server: { host: true, port: 5173 },
+  server: { host: true, port: 5173, fs: { allow: ['..'] } },
   build: { target: 'esnext', outDir: 'dist', emptyOutDir: true, assetsDir: '' },
   plugins: [{
     name: 'strip-crossorigin',

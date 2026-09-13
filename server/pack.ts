@@ -3,8 +3,8 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CLIENT_DIST, ROOT, wsUrl } from './config.js'
-import { manifest } from './setup.js'
+import { CLIENT_DIST, ROOT, wsUrl } from './config.ts'
+import { manifest } from './setup.ts'
 
 // The Even app only reinstalls a private build whose version is higher than
 // the one already installed, so every pack bumps the patch version
@@ -26,9 +26,9 @@ console.log(`wrote ${appJson} (version ${pkg.version})`)
 const b = spawnSync('npm', ['--prefix', join(ROOT, 'client'), 'run', 'build'], {
   stdio: 'inherit', env: { ...process.env, VITE_OMNI_WS_URL: wsUrl() },
 })
-if (b.status !== 0) process.exit(b.status)
+if (b.status !== 0) process.exit(b.status ?? 1)
 console.log(`built client with default server ${wsUrl()}`)
 const out = join(ROOT, 'omni.ehpk')
 const r = spawnSync('npx', ['--prefix', join(ROOT, 'client'), 'evenhub', 'pack', appJson, CLIENT_DIST, '-o', out], { stdio: 'inherit', cwd: join(ROOT, 'client') })
-if (r.status !== 0) process.exit(r.status)
+if (r.status !== 0) process.exit(r.status ?? 1)
 console.log(`packed ${out}`)

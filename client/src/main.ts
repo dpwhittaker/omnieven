@@ -14,7 +14,7 @@ import {
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import { OmniSocket } from './ws'
-import { CLIENT_VERSION, type ServerFrame } from './protocol'
+import { CLIENT_VERSION, type ClientFrame, type Cmd, type ServerFrame } from './protocol'
 
 // Stored through the Even App storage bridge as two plain strings (older
 // builds kept one JSON blob under PROFILE_LEGACY_KEY, still read as fallback).
@@ -45,7 +45,7 @@ function log(msg: string, level: 'info' | 'warn' | 'error' = 'info') {
   elLog.textContent = logLines.join('\n')
   elLog.scrollTop = elLog.scrollHeight
   ;(level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(msg)
-  sock.send({ t: 'log', level, msg })
+  sendFrame({ t: 'log', level, msg })
 }
 function setStatus(text: string, cls: 'ok' | 'bad' | 'wait') {
   elStatus.textContent = text
@@ -71,6 +71,9 @@ let launchSource: string | null = null
 let audioOn = false
 let cmdChain: Promise<unknown> = Promise.resolve()
 
+// Every frame that leaves the client is checked against the shared contract.
+const sendFrame = (f: ClientFrame) => sock.send(f)
+
 const sock = new OmniSocket({
   onOpen: () => {
     setStatus('Connected', 'ok')
@@ -81,12 +84,12 @@ const sock = new OmniSocket({
     setStatus(`Disconnected (${reason || 'closed'}) – retrying`, 'wait')
   },
   onJson: (frame: ServerFrame) => {
-    if (frame.t === 'ping') { sock.send({ t: 'pong' }); return }
+    if (frame.t === 'ping') { sendFrame({ t: 'pong' }); return }
     if (frame.t === 'welcome') { log(`server ${frame.serverVersion}`); return }
     if (frame.t === 'error') { log(`server error: ${frame.msg}`, 'error'); return }
     if (frame.t === 'cmd') {
       // Bridge calls must never overlap: the SDK shares one BLE link.
-      cmdChain = cmdChain.then(() => runCmd(frame.id, frame.op, frame.args)).catch(() => {})
+      cmdChain = cmdChain.then(() => runCmd(frame)).catch(() => {})
     }
   },
 })
@@ -104,11 +107,11 @@ async function sendHello() {
   let user: unknown = null
   try { device = await withTimeout(bridge!.getDeviceInfo(), 'getDeviceInfo') } catch (e) { log(`getDeviceInfo: ${e}`, 'warn') }
   try { user = await withTimeout(bridge!.getUserInfo(), 'getUserInfo') } catch (e) { log(`getUserInfo: ${e}`, 'warn') }
-  sock.send({
+  sendFrame({
     t: 'hello',
     token: profile.token,
     client: { version: CLIENT_VERSION, sdk: '0.0.15' },
-    device, user, launchSource, pageCreated,
+    device: device as any, user: user as any, launchSource, pageCreated,
   })
 }
 
@@ -119,12 +122,14 @@ function b64ToBytes(b64: string): Uint8Array {
   return out
 }
 
-async function runCmd(id: number, op: string, args: any) {
-  const reply = (ok: boolean, value?: unknown, error?: string) => sock.send({ t: 'result', id, ok, value, error })
+async function runCmd(cmd: Cmd) {
+  const { id, op } = cmd
+  const reply = (ok: boolean, value?: unknown, error?: string) => sendFrame({ t: 'result', id, ok, value, error })
   if (!bridge) { reply(false, undefined, 'bridge not ready'); return }
   try {
-    switch (op) {
+    switch (cmd.op) {
       case 'page': {
+        const args = cmd.args as any
         if (!pageCreated) {
           const r = await withTimeout(bridge.createStartUpPageContainer(args), 'createStartUpPageContainer')
           pageCreated = r === 0
@@ -136,11 +141,12 @@ async function runCmd(id: number, op: string, args: any) {
         return
       }
       case 'text': {
-        const ok = await withTimeout(bridge.textContainerUpgrade(args), 'textContainerUpgrade')
+        const ok = await withTimeout(bridge.textContainerUpgrade(cmd.args as any), 'textContainerUpgrade')
         reply(!!ok, ok, ok ? undefined : 'upgrade returned false')
         return
       }
       case 'image': {
+        const args = cmd.args
         const r = await withTimeout(bridge.updateImageRawData(new ImageRawDataUpdate({
           containerID: args.containerID,
           containerName: args.containerName,
@@ -150,6 +156,7 @@ async function runCmd(id: number, op: string, args: any) {
         return
       }
       case 'audio': {
+        const args = cmd.args
         const src = args.source === 'phone' ? AudioInputSource.Phone : AudioInputSource.Glasses
         const ok = await withTimeout(bridge.audioControl(!!args.on, src), 'audioControl')
         audioOn = !!args.on && !!ok
@@ -157,11 +164,13 @@ async function runCmd(id: number, op: string, args: any) {
         return
       }
       case 'imu': {
-        const ok = await withTimeout(bridge.imuControl(!!args.on, args.pace), 'imuControl')
+        const args = cmd.args
+        const ok = await withTimeout(bridge.imuControl(!!args.on, args.pace as any), 'imuControl')
         reply(!!ok, ok)
         return
       }
       case 'location': {
+        const args = cmd.args as any
         if (args.once) {
           const loc = await withTimeout(bridge.getAppLocation(args), 'getAppLocation')
           reply(true, loc)
@@ -175,18 +184,18 @@ async function runCmd(id: number, op: string, args: any) {
         return
       }
       case 'storage.get': {
-        const v = await withTimeout(bridge.getLocalStorage(String(args.key)), 'getLocalStorage')
+        const v = await withTimeout(bridge.getLocalStorage(String(cmd.args.key)), 'getLocalStorage')
         reply(true, v)
         return
       }
       case 'storage.set': {
-        const ok = await withTimeout(bridge.setLocalStorage(String(args.key), String(args.value)), 'setLocalStorage')
+        const ok = await withTimeout(bridge.setLocalStorage(String(cmd.args.key), String(cmd.args.value)), 'setLocalStorage')
         reply(!!ok, ok)
         return
       }
       case 'shutdown': {
-        const ok = await withTimeout(bridge.shutDownPageContainer(args?.mode ?? 1), 'shutDownPageContainer')
-        if (args?.mode === 0) pageCreated = false
+        const ok = await withTimeout(bridge.shutDownPageContainer(cmd.args?.mode ?? 1), 'shutDownPageContainer')
+        if (cmd.args?.mode === 0) pageCreated = false
         reply(!!ok, ok)
         return
       }
@@ -195,8 +204,12 @@ async function runCmd(id: number, op: string, args: any) {
         setTimeout(() => window.location.reload(), 200)
         return
       }
-      default:
-        reply(false, undefined, `unknown op ${op}`)
+      default: {
+        // Compile-time exhaustiveness: adding a CmdOp to shared/protocol.ts
+        // without handling it here is a type error.
+        const never: never = cmd
+        reply(false, undefined, `unknown op ${(never as Cmd).op}`)
+      }
     }
   } catch (err) {
     log(`${op} failed: ${(err as Error).message}`, 'error')
@@ -221,11 +234,11 @@ function relayEvent(ev: EvenHubEvent) {
       audioOn = false
     }
     if (type === OsEventTypeList.IMU_DATA_REPORT) {
-      sock.send({ t: 'event', ev: { sysEvent: { eventType: type, imuData: sys.imuData } } })
+      sendFrame({ t: 'event', ev: { sysEvent: { eventType: type, imuData: sys.imuData } } })
       return
     }
   }
-  sock.send({ t: 'event', ev })
+  sendFrame({ t: 'event', ev: ev as any })
 }
 
 // ── profile ──────────────────────────────────────────────────────────
@@ -290,9 +303,9 @@ async function boot() {
     log(String(err), 'error')
     return
   }
-  bridge.onLaunchSource((src) => { launchSource = src; sock.send({ t: 'launch', source: src }) })
-  bridge.onDeviceStatusChanged((status) => sock.send({ t: 'device', status }))
-  bridge.onAppLocationChanged((loc) => sock.send({ t: 'location', loc }))
+  bridge.onLaunchSource((src) => { launchSource = src; sendFrame({ t: 'launch', source: src }) })
+  bridge.onDeviceStatusChanged((status) => sendFrame({ t: 'device', status: status as any }))
+  bridge.onAppLocationChanged((loc) => sendFrame({ t: 'location', loc: loc as any }))
   bridge.onEvenHubEvent(relayEvent)
 
   const profile = await loadProfile()

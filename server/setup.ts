@@ -2,9 +2,9 @@
 import QRCode from 'qrcode'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.js'
+import { PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.ts'
 
-export async function setupPage(shell) {
+export async function setupPage(): Promise<string> {
   const appUrl = `${PUBLIC_URL}/app/?token=${encodeURIComponent(TOKEN)}`
   const plainUrl = `${PUBLIC_URL}/app/`
   const qr = await QRCode.toString(appUrl, { type: 'svg', margin: 1, width: 260 })
@@ -12,7 +12,7 @@ export async function setupPage(shell) {
   const ehpkFile = join(ROOT, 'omni.ehpk')
   const ehpk = existsSync(ehpkFile) ? statSync(ehpkFile).size : 0
   const ehpkAt = ehpk ? statSync(ehpkFile).mtimeMs : 0
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c])
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Omni setup</title>
 <style>
@@ -49,7 +49,7 @@ curl -s -H "Authorization: Bearer $T" -X POST $A/notify -d '{"text":"hello from 
 curl -s -H "Authorization: Bearer $T" -X POST $A/show -d '{"text":"Any text.\\nRight now."}' -H 'content-type: application/json'
 curl -s -H "Authorization: Bearer $T" $A/screen        # what is on the glasses
 curl -N -H "Authorization: Bearer $T" $A/events        # live SSE of gestures/logs</pre>
-<p>Drop a file in <code>tabs/</code> and it shows up on the glasses immediately. See <code>docs/TABS.md</code>.</p></div>
+<p>Drop a file in <code>apps/</code> and it shows up on the glasses immediately. See <code>docs/APPS.md</code>.</p></div>
 <div class="card"><h2>Live status</h2><div id="status">loading…</div></div>
 </main>
 <script>
@@ -57,14 +57,14 @@ const T=${JSON.stringify(TOKEN)};
 async function tick(){try{const r=await fetch('/api/status',{headers:{Authorization:'Bearer '+T}});const s=await r.json();
 document.getElementById('status').textContent=
  'connections: '+s.connections.length+(s.connections.length?'  ('+s.connections.map(c=>(c.device&&c.device.model)||'device?').join(', ')+')':'')+
- '\\nactive tab: '+(s.active||'home')+'\\ntabs: '+s.tabs.map(t=>t.id+(t.error?' (!)':'')).join(', ')+
+ '\\nactive app: '+(s.active||'home')+'\\napps: '+s.apps.map(t=>t.id+(t.error?' (!)':'')).join(', ')+
  '\\nlast event: '+(s.lastEvent?s.lastEvent.type+' @ '+new Date(s.lastEvent.ts).toLocaleTimeString():'-')+
  '\\nws: ${esc(wsUrl())}'}catch(e){document.getElementById('status').textContent='error '+e}}
 tick();setInterval(tick,3000);
 </script></body></html>`
 }
 
-export function manifest() {
+export function manifest(): Record<string, unknown> {
   const origin = new URL(PUBLIC_URL)
   const https = origin.protocol === 'https:'
   const wl = [PUBLIC_URL, `${https ? 'wss' : 'ws'}://${origin.host}`]
@@ -78,8 +78,8 @@ export function manifest() {
     entrypoint: 'index.html',
     permissions: [
       { name: 'network', desc: 'Connects to your own Omni server, which renders the dashboard.', whitelist: wl },
-      { name: 'g2-microphone', desc: 'Voice input for tabs that ask for it.' },
-      { name: 'location', desc: 'Location for tabs that ask for it (weather, maps).' },
+      { name: 'g2-microphone', desc: 'Voice input for apps that ask for it.' },
+      { name: 'location', desc: 'Location for apps that ask for it (weather, maps).' },
     ],
     supported_languages: ['en'],
   }

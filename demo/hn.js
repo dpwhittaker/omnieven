@@ -1,9 +1,32 @@
-// Hacker News top stories — a list-first tab with a detail view. Shows
-// server-side fetching, native lists, and a tab-internal back stack
+// Hacker News top stories — a list-first app with a detail view. Shows
+// server-side fetching, native lists, and an app-internal back stack
 // (double-tap goes back to the list before it goes home).
 const API = 'https://hacker-news.firebaseio.com/v0'
 const REFRESH_MS = 5 * 60 * 1000
 
+/** @typedef {{ id: number, title: string, score: number, by: string, url?: string, descendants?: number }} Story */
+/** @typedef {{ stories: Story[], selected: number | null, loading: boolean, fetchedAt?: number, error?: string }} Mem */
+
+/** @param {import('../shared/app.ts').AppContext<{}, Mem>} ctx */
+async function load(ctx) {
+  if (ctx.mem.loading) return
+  ctx.mem.loading = true
+  ctx.render()
+  try {
+    const ids = /** @type {number[]} */ (await (await ctx.fetch(`${API}/topstories.json`)).json()).slice(0, 20)
+    ctx.mem.stories = await Promise.all(ids.map(async (id) => /** @type {Promise<Story>} */ ((await ctx.fetch(`${API}/item/${id}.json`)).json())))
+    ctx.mem.fetchedAt = Date.now()
+    ctx.mem.error = undefined
+  } catch (err) {
+    ctx.mem.error = err instanceof Error ? err.message : String(err)
+    ctx.log(`fetch failed: ${ctx.mem.error}`)
+  } finally {
+    ctx.mem.loading = false
+    ctx.render()
+  }
+}
+
+/** @type {import('../shared/app.ts').OmniApp<{}, Mem>} */
 export default {
   title: 'Hacker News',
   order: 4,
@@ -13,25 +36,8 @@ export default {
     ctx.mem.stories ??= []
     ctx.mem.selected = null
     ctx.mem.loading = false
-    this.load(ctx)
-    ctx.setInterval(() => this.load(ctx), REFRESH_MS)
-  },
-
-  async load(ctx) {
-    if (ctx.mem.loading) return
-    ctx.mem.loading = true
-    ctx.render()
-    try {
-      const ids = (await (await ctx.fetch(`${API}/topstories.json`)).json()).slice(0, 20)
-      ctx.mem.stories = await Promise.all(ids.map(async (id) => (await ctx.fetch(`${API}/item/${id}.json`)).json()))
-      ctx.mem.fetchedAt = Date.now()
-    } catch (err) {
-      ctx.log(`fetch failed: ${err.message}`)
-      ctx.mem.error = err.message
-    } finally {
-      ctx.mem.loading = false
-      ctx.render()
-    }
+    void load(ctx)
+    ctx.setInterval(() => void load(ctx), REFRESH_MS)
   },
 
   render(ctx) {
@@ -64,6 +70,6 @@ export default {
   },
   onMenu(ctx, id) {
     if (id === 'back') { ctx.mem.selected = null; ctx.render() }
-    if (id === 'refresh') this.load(ctx)
+    if (id === 'refresh') void load(ctx)
   },
 }

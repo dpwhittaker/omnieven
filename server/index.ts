@@ -1,27 +1,33 @@
 // Omni server entry: static glasses client, HTTP API, WebSocket bridge.
 import { createServer } from 'node:http'
+import { register } from 'node:module'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { WebSocketServer } from 'ws'
 import qrcodeTerminal from 'qrcode-terminal'
-import { CLIENT_DIST, HOST, PORT, PUBLIC_URL, ROOT, TABS_DIR, TOKEN, VERSION, wsUrl } from './config.js'
-import { Connection } from './connection.js'
-import { Shell } from './shell.js'
-import { handleApi, sendJson } from './api.js'
-import { manifest, setupPage } from './setup.js'
-import { log } from './log.js'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ClientFrame } from '../shared/protocol.ts'
+import { APPS_DIR, CLIENT_DIST, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.ts'
+import { Connection } from './connection.ts'
+import { Shell } from './shell.ts'
+import { handleApi, sendJson } from './api.ts'
+import { manifest, setupPage } from './setup.ts'
+import { log } from './log.ts'
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.map': 'application/json' }
+const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.map': 'application/json' }
 
-const shell = new Shell({ tabsDir: TABS_DIR })
+// Cache-bust imports inside apps/ so nested helper files hot-reload too.
+register('./loader-hooks.ts', { parentURL: import.meta.url, data: { appsDir: APPS_DIR } })
 
-function tokenOf(req, url) {
+const shell = new Shell({ appsDir: APPS_DIR })
+
+function tokenOf(req: IncomingMessage, url: URL): string {
   const h = req.headers.authorization
   if (h?.startsWith('Bearer ')) return h.slice(7).trim()
   return url.searchParams.get('token') || ''
 }
 
-function serveStatic(res, file) {
+function serveStatic(res: ServerResponse, file: string): boolean {
   if (!existsSync(file) || !statSync(file).isFile()) return false
   res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' })
   createReadStream(file).pipe(res)
@@ -29,7 +35,7 @@ function serveStatic(res, file) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x')
+  const url = new URL(req.url || '/', 'http://x')
   const p = url.pathname
   try {
     // The glasses client: public, secret-free. Its token comes from the user.
@@ -50,7 +56,7 @@ const server = createServer(async (req, res) => {
       sendJson(res, 401, { error: 'unauthorized' }); return
     }
     if (p === '/' || p === '/setup') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(await setupPage(shell)); return
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(await setupPage()); return
     }
     if (p === '/omni.ehpk') {
       const f = join(ROOT, 'omni.ehpk')
@@ -61,15 +67,15 @@ const server = createServer(async (req, res) => {
     if (await handleApi(req, res, url, shell)) return
     res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found')
   } catch (err) {
-    log('error', `http ${p}: ${err.stack || err.message}`)
-    if (!res.headersSent) sendJson(res, 500, { error: err.message })
+    log('error', `http ${p}: ${(err as Error).stack || (err as Error).message}`)
+    if (!res.headersSent) sendJson(res, 500, { error: (err as Error).message })
   }
 })
 
 // ── WebSocket ────────────────────────────────────────────────────────
 const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 })
 server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url, 'http://x')
+  const url = new URL(req.url || '/', 'http://x')
   if (url.pathname !== '/ws') { socket.destroy(); return }
   if (tokenOf(req, url) !== TOKEN) {
     log('warn', `ws unauthorized from ${req.socket.remoteAddress}`)
@@ -79,7 +85,7 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 wss.on('connection', (ws, req) => {
-  const remote = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress
+  const remote = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?'
   const conn = new Connection(ws, remote)
   log('ws', `client ${conn.id} connected from ${remote}`)
   conn.send({ t: 'welcome', serverVersion: VERSION })
@@ -87,8 +93,8 @@ wss.on('connection', (ws, req) => {
   const hb = setInterval(() => conn.send({ t: 'ping' }), 20000)
 
   ws.on('message', (data, isBinary) => {
-    if (isBinary) { shell.handleAudio(conn, data); return }
-    let frame
+    if (isBinary) { shell.handleAudio(conn, Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)); return }
+    let frame: ClientFrame
     try { frame = JSON.parse(data.toString()) } catch { return }
     switch (frame.t) {
       case 'hello':
@@ -105,7 +111,7 @@ wss.on('connection', (ws, req) => {
       case 'launch': conn.launchSource = frame.source; break
       case 'log': log(`client:${conn.id}`, `${frame.level}: ${frame.msg}`); break
       case 'pong': break
-      default: log('warn', `client ${conn.id} unknown frame ${frame.t}`)
+      default: log('warn', `client ${conn.id} unknown frame ${(frame as { t: string }).t}`)
     }
   })
   ws.on('close', () => {
@@ -114,7 +120,7 @@ wss.on('connection', (ws, req) => {
     if (registered) shell.removeConnection(conn)
     log('ws', `client ${conn.id} disconnected`)
   })
-  ws.on('error', (err) => log('warn', `ws ${conn.id}: ${err.message}`))
+  ws.on('error', (err: Error) => log('warn', `ws ${conn.id}: ${err.message}`))
 })
 
 // ── boot ─────────────────────────────────────────────────────────────
@@ -126,14 +132,14 @@ server.listen(PORT, HOST, () => {
   console.log(`  websocket  : ${wsUrl()}`)
   console.log(`  setup page : ${setup}`)
   console.log(`  token      : ${TOKEN}`)
-  console.log(`  tabs dir   : ${TABS_DIR}  (${shell.registry.list().map((t) => t.id).join(', ') || 'empty'})`)
+  console.log(`  apps dir   : ${APPS_DIR}  (${shell.registry.list().map((a) => a.id).join(', ') || 'empty'})`)
   if (!existsSync(CLIENT_DIST)) console.log('  WARNING    : client not built — run `npm run build:client`')
   console.log('\nScan with the Even app (Even Hub → Developer → Scan QR):')
   qrcodeTerminal.generate(`${PUBLIC_URL}/app/?token=${encodeURIComponent(TOKEN)}`, { small: true })
 })
 
-function shutdown() { shell.registry.saveAll(); process.exit(0) }
+function shutdown(): void { shell.registry.saveAll(); process.exit(0) }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
-process.on('uncaughtException', (err) => log('error', `uncaught: ${err.stack || err.message}`))
-process.on('unhandledRejection', (err) => log('error', `unhandled: ${err?.stack || err}`))
+process.on('uncaughtException', (err: Error) => log('error', `uncaught: ${err.stack || err.message}`))
+process.on('unhandledRejection', (err) => log('error', `unhandled: ${(err as Error)?.stack || err}`))

@@ -2,7 +2,8 @@
 // Headless stand-in for the phone + glasses. Connects to an Omni server,
 // prints what would be drawn, and lets you inject gestures from stdin.
 // Usage: node scripts/fake-client.mjs [ws://localhost:7788/ws] [token]
-//   keys: t=tap d=double u=up w=down l=longpress r=release s<N>=select N m<N>=menu item N q=quit
+//   keys: t=tap d=double u=up w=down l=longpress r=release e=foreground-enter x=system-exit
+//         s<N>=select list item N  m<N>=menu item N  q=quit  (one per line; exits when stdin closes)
 import WebSocket from 'ws'
 import { createInterface } from 'node:readline'
 import { readFileSync, existsSync } from 'node:fs'
@@ -38,7 +39,7 @@ ws.on('message', (data, isBinary) => {
   if (f.t === 'ping') return ws.send(JSON.stringify({ t: 'pong' }))
   if (f.t !== 'cmd') return console.log('<', f)
   const { id, op, args } = f
-  if (op === 'page') { page = args; created = true; console.log(`\n[${created ? 'rebuild' : 'create'} page]`); draw(); return reply(id, true, 0) }
+  if (op === 'page') { console.log(`\n[${created ? 'rebuild' : 'create'} page]`); page = args; created = true; draw(); return reply(id, true, 0) }
   if (op === 'text') {
     const t = page?.textObject.find((x) => x.containerID === args.containerID)
     if (t) { t.content = args.content; console.log(`[text #${args.containerID}] ${args.content.replace(/\n/g, ' ⏎ ').slice(0, 120)}`) }
@@ -51,9 +52,14 @@ ws.on('message', (data, isBinary) => {
 ws.on('close', () => { console.log('closed'); process.exit(0) })
 ws.on('error', (e) => { console.error('error', e.message); process.exit(1) })
 const reply = (id, ok, value) => ws.send(JSON.stringify({ t: 'result', id, ok, value }))
-const send = (ev) => ws.send(JSON.stringify({ t: 'event', ev }))
+// Lines typed before the socket is open are queued and flushed on connect.
+const queued = []
+const send = (ev) => { const f = JSON.stringify({ t: 'event', ev }); if (ws.readyState === 1) ws.send(f); else queued.push(f) }
+ws.on('open', () => { for (const f of queued) ws.send(f); queued.length = 0 })
 
-createInterface({ input: process.stdin }).on('line', (line) => {
+const rl = createInterface({ input: process.stdin })
+rl.on('close', () => process.exit(0))
+rl.on('line', (line) => {
   const k = line.trim()
   if (k === 'q') process.exit(0)
   if (k === 't') send({ sysEvent: {} })

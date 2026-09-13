@@ -7,11 +7,11 @@ services:
   omni:
     build: .
     restart: unless-stopped
+    env_file: .env
     environment:
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:7788}
-      OMNI_TOKEN: ${OMNI_TOKEN:-}
     volumes:
-      - ./tabs:/app/tabs
+      - ./apps:/app/apps
       - omni-data:/app/data
     ports:
       - "127.0.0.1:7788:7788"

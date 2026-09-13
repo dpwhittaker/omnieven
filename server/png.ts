@@ -9,12 +9,12 @@ for (let n = 0; n < 256; n++) {
   for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
   CRC_TABLE[n] = c >>> 0
 }
-function crc32(buf) {
+function crc32(buf: Uint8Array): number {
   let c = 0xffffffff
   for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
   return (c ^ 0xffffffff) >>> 0
 }
-function chunk(type, data) {
+function chunk(type: string, data: Buffer): Buffer {
   const len = Buffer.alloc(4); len.writeUInt32BE(data.length)
   const td = Buffer.concat([Buffer.from(type, 'latin1'), data])
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td))
@@ -22,7 +22,7 @@ function chunk(type, data) {
 }
 
 /** Encode a width*height Uint8Array of 0..255 grey values as PNG. */
-export function encodeGreyPng(width, height, pixels) {
+export function encodeGreyPng(width: number, height: number, pixels: Uint8Array): Buffer {
   if (pixels.length !== width * height) throw new Error('pixel buffer size mismatch')
   const raw = Buffer.alloc((width + 1) * height)
   for (let y = 0; y < height; y++) {
@@ -39,7 +39,7 @@ export function encodeGreyPng(width, height, pixels) {
 }
 
 // 3x5 pixel glyphs for a tiny label font (digits, a few symbols, upper-case).
-const FONT = {
+const FONT: Record<string, string[]> = {
   '0': ['111', '101', '101', '101', '111'], '1': ['010', '110', '010', '010', '111'],
   '2': ['111', '001', '111', '100', '111'], '3': ['111', '001', '111', '001', '111'],
   '4': ['101', '101', '111', '001', '001'], '5': ['111', '100', '111', '001', '111'],
@@ -69,29 +69,32 @@ const FONT = {
  * at 288x144.
  */
 export class Canvas {
-  constructor(width, height) {
+  readonly width: number
+  readonly height: number
+  readonly px: Uint8Array
+  constructor(width: number, height: number) {
     if (width < 20 || width > 288 || height < 20 || height > 144) {
       throw new Error('image container must be 20..288 x 20..144')
     }
     this.width = width; this.height = height
     this.px = new Uint8Array(width * height)
   }
-  clear(v = 0) { this.px.fill(v); return this }
-  set(x, y, v = 255) {
+  clear(v = 0): this { this.px.fill(v); return this }
+  set(x: number, y: number, v = 255): this {
     x |= 0; y |= 0
     if (x >= 0 && y >= 0 && x < this.width && y < this.height) this.px[y * this.width + x] = v
     return this
   }
-  rect(x, y, w, h, v = 255) {
+  rect(x: number, y: number, w: number, h: number, v = 255): this {
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) this.set(i, j, v)
     return this
   }
-  frame(x, y, w, h, v = 255) {
+  frame(x: number, y: number, w: number, h: number, v = 255): this {
     this.rect(x, y, w, 1, v); this.rect(x, y + h - 1, w, 1, v)
     this.rect(x, y, 1, h, v); this.rect(x + w - 1, y, 1, h, v)
     return this
   }
-  line(x0, y0, x1, y1, v = 255) {
+  line(x0: number, y0: number, x1: number, y1: number, v = 255): this {
     x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0
     const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0)
     const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1
@@ -105,7 +108,7 @@ export class Canvas {
     }
     return this
   }
-  circle(cx, cy, r, v = 255, fill = false) {
+  circle(cx: number, cy: number, r: number, v = 255, fill = false): this {
     for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
       const d = x * x + y * y
       if (fill ? d <= r * r : d <= r * r && d >= (r - 1) * (r - 1)) this.set(cx + x, cy + y, v)
@@ -113,7 +116,7 @@ export class Canvas {
     return this
   }
   /** Tiny 3x5 label font (upper-case, digits, % . : - /). `scale` multiplies. */
-  text(x, y, str, v = 255, scale = 1) {
+  text(x: number, y: number, str: string | number, v = 255, scale = 1): this {
     let cx = x
     for (const ch of String(str).toUpperCase()) {
       const g = FONT[ch] || FONT[' ']
@@ -125,11 +128,11 @@ export class Canvas {
     return this
   }
   /** Plot a series scaled into the given box. */
-  sparkline(values, x, y, w, h, v = 255) {
+  sparkline(values: number[], x: number, y: number, w: number, h: number, v = 255): this {
     if (!values.length) return this
     const min = Math.min(...values), max = Math.max(...values)
     const span = max - min || 1
-    let prev = null
+    let prev: [number, number] | null = null
     values.forEach((val, i) => {
       const px = x + Math.round((i / Math.max(1, values.length - 1)) * (w - 1))
       const py = y + h - 1 - Math.round(((val - min) / span) * (h - 1))
@@ -138,5 +141,5 @@ export class Canvas {
     })
     return this
   }
-  toPng() { return encodeGreyPng(this.width, this.height, this.px) }
+  toPng(): Buffer { return encodeGreyPng(this.width, this.height, this.px) }
 }

@@ -1,6 +1,9 @@
 node_modules/
 client/node_modules/
 client/dist/
+client/app.json
+# your apps live here (their own repo); demo/ is the starter set
+apps/
 data/
 *.ehpk
 .env
