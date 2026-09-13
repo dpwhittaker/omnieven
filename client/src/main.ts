@@ -16,8 +16,15 @@ import {
 import { OmniSocket } from './ws'
 import { CLIENT_VERSION, type ServerFrame } from './protocol'
 
-const PROFILE_KEY = 'omni.profile.v1'
+// Stored through the Even App storage bridge as two plain strings (older
+// builds kept one JSON blob under PROFILE_LEGACY_KEY, still read as fallback).
+const KEY_URL = 'omni.url'
+const KEY_TOKEN = 'omni.token'
+const PROFILE_LEGACY_KEY = 'omni.profile.v1'
 const CALL_TIMEOUT_MS = 8000
+// Baked in at build time by `npm run pack` (VITE_OMNI_WS_URL) so an installed
+// .ehpk knows its server without the user typing it.
+const BUILT_IN_URL: string = (import.meta.env.VITE_OMNI_WS_URL as string | undefined) || ''
 
 type Profile = { url: string; token: string }
 
@@ -49,8 +56,8 @@ function setStatus(text: string, cls: 'ok' | 'bad' | 'wait') {
 // the client), so a sideloaded install needs only the token.
 function defaultUrl(): string {
   const loc = window.location
-  if (!/^https?:$/.test(loc.protocol)) return ''
-  return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`
+  if (/^https?:$/.test(loc.protocol)) return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`
+  return BUILT_IN_URL
 }
 function tokenFromQuery(): string {
   const p = new URLSearchParams(window.location.search)
@@ -226,20 +233,41 @@ function currentProfile(): Profile {
   return { url: elUrl.value.trim(), token: elToken.value.trim() }
 }
 
-async function loadProfile(): Promise<Profile> {
-  let saved: Profile | null = null
+// The host may hand back null, '', a string, or (for the legacy JSON key) an
+// already-decoded object; normalise all of them to a trimmed string.
+async function storageGet(key: string): Promise<string> {
   try {
-    const raw = await withTimeout(bridge!.getLocalStorage(PROFILE_KEY), 'getLocalStorage')
-    if (raw) saved = JSON.parse(raw)
-  } catch (e) { log(`profile load: ${e}`, 'warn') }
-  const url = saved?.url || defaultUrl()
-  const token = tokenFromQuery() || saved?.token || ''
-  return { url, token }
+    const raw: unknown = await withTimeout(bridge!.getLocalStorage(key), `getLocalStorage(${key})`)
+    if (raw == null) return ''
+    if (typeof raw === 'string') return raw.trim()
+    return JSON.stringify(raw)
+  } catch (e) {
+    log(`storage get ${key}: ${e}`, 'warn')
+    return ''
+  }
+}
+
+async function loadProfile(): Promise<Profile> {
+  let url = await storageGet(KEY_URL)
+  let token = await storageGet(KEY_TOKEN)
+  if (!url && !token) {
+    const legacy = await storageGet(PROFILE_LEGACY_KEY)
+    if (legacy) {
+      try { const p = JSON.parse(legacy); url = String(p.url || ''); token = String(p.token || '') } catch {}
+    }
+  }
+  log(`stored profile: url=${url ? 'yes' : 'no'} token=${token ? 'yes' : 'no'}`)
+  return { url: url || defaultUrl(), token: tokenFromQuery() || token }
 }
 
 async function saveProfile(p: Profile) {
-  try { await withTimeout(bridge!.setLocalStorage(PROFILE_KEY, JSON.stringify(p)), 'setLocalStorage') }
-  catch (e) { log(`profile save: ${e}`, 'warn') }
+  try {
+    const okUrl = await withTimeout(bridge!.setLocalStorage(KEY_URL, p.url), 'setLocalStorage(url)')
+    const okTok = await withTimeout(bridge!.setLocalStorage(KEY_TOKEN, p.token), 'setLocalStorage(token)')
+    const back = await storageGet(KEY_TOKEN)
+    if (okUrl && okTok && back === p.token) log('profile saved')
+    else log(`profile save unverified (url=${okUrl} token=${okTok} readback=${back === p.token})`, 'warn')
+  } catch (e) { log(`profile save: ${e}`, 'warn') }
 }
 
 function connectWith(p: Profile) {
@@ -270,6 +298,8 @@ async function boot() {
   const profile = await loadProfile()
   elUrl.value = profile.url
   elToken.value = profile.token
+  // A QR/URL-supplied token is persisted immediately so the next launch
+  // (with or without the query string) reconnects on its own.
   if (tokenFromQuery() && profile.url) await saveProfile(profile)
 
   elSave.onclick = async () => {
