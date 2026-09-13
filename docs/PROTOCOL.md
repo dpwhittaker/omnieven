@@ -21,7 +21,7 @@ WebSocket at `/ws?token=…`. JSON text frames; binary frames are raw PCM audio
 | `{t:'cmd', id, op:'text', args}` | `textContainerUpgrade` |
 | `{t:'cmd', id, op:'image', args:{containerID, containerName, png}}` | `updateImageRawData` (PNG bytes, base64) |
 | `op:'audio' {on, source}` / `op:'imu' {on, pace}` / `op:'location' {once|on,…}` | device features |
-| `op:'storage.get' {key}` / `op:'storage.set' {key,value}` | Even App localStorage |
+| `op:'storage.get' {key}` / `op:'storage.set' {key,value}` | Even App localStorage (the client keeps its own profile under `omni.url` / `omni.token`) |
 | `op:'shutdown' {mode}` | `shutDownPageContainer` (1 = system dialog) |
 | `op:'reload'` | reload the WebView |
 | `{t:'ping'}` | keepalive |

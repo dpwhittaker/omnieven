@@ -39,7 +39,7 @@ export async function setupPage(shell) {
 <p class="warn">The page must be reachable from the phone (public HTTPS, Tailscale, or same Wi-Fi). Set <code>PUBLIC_URL</code> to whatever the phone will use.</p>
 </div></div></div>
 <div class="card"><h2>2. Permanent install (optional)</h2>
-<p>Dev sideload is enough for personal use. For an installed app: <code>npm run pack</code> writes <code>client/app.json</code> whitelisting <code>${esc(PUBLIC_URL)}</code> and produces <code>omni.ehpk</code>.</p>
+<p>The QR sideload above is "prototype mode". For an app that stays installed: <code>npm run pack</code> on the server bumps the version (the Even app only reinstalls a higher version), writes <code>client/app.json</code> whitelisting <code>${esc(PUBLIC_URL)}</code>, bakes the server URL into the bundle and produces <code>omni.ehpk</code>.</p>
 <p>${ehpk ? `<a href="/omni.ehpk?token=${encodeURIComponent(TOKEN)}" style="color:#9ff0c0;font-weight:600">⬇ Download omni.ehpk</a> (${Math.round(ehpk / 1024)} KB, packed ${esc(new Date(ehpkAt).toLocaleString())})` : '<span class="warn">Not packed yet — run <code>npm run pack</code> on the server.</span>'}
 — upload it at <a href="https://hub.evenrealities.com" style="color:#9ff0c0">hub.evenrealities.com</a> → Private builds, then install from the phone: Me → Apps → Private builds. The installed app connects to <code>${esc(wsUrl())}</code>; paste the token once in its settings form.</p></div>
 <div class="card"><h2>3. Drive it</h2>

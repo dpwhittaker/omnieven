@@ -90,12 +90,29 @@ scripts/  fake-client.mjs (headless glasses for testing)  dev-server.sh
 docs/     TABS.md (tab API)  PROTOCOL.md (wire format)
 ```
 
-## Permanent install (optional)
+## Permanent install (private build)
 
-Dev sideload is fine for personal use. For an installed Even Hub app:
-`npm run pack` writes `client/app.json` (network whitelist = your `PUBLIC_URL`) and packs
-`omni.ehpk`; upload it at hub.evenrealities.com → *Private builds*, then install from the
-phone (Me → Apps → Private builds).
+The QR sideload ("prototype mode") only lives while the Even app keeps the dev session; for
+an app that stays installed:
+
+```bash
+PUBLIC_URL=https://omni.example.com npm run pack     # → omni.ehpk
+```
+
+`pack` does four things: bumps the patch version in `package.json` (the Even app refuses to
+reinstall a build unless its version is higher than the installed one — `--no-bump` to skip),
+writes `client/app.json` with the network whitelist set to your `PUBLIC_URL`, rebuilds the
+client with that server's WebSocket URL baked in as the default, and packs `client/dist`.
+
+Then either download it from the setup page (**⬇ Download omni.ehpk**, or
+`GET /omni.ehpk?token=…`) or copy it off the box, upload it at hub.evenrealities.com →
+*Private builds*, and install on the phone from **Me → Apps → Private builds**. On first
+launch paste the token into the app's form and tap *Save & connect*; the URL and token are
+kept in the Even app's storage, so later launches connect on their own.
+
+Bundle notes (learned the hard way): the client is built with relative, flattened asset
+paths and no `crossorigin` attribute — absolute `/app/assets/…` URLs load fine in a browser
+but never execute from an installed package, leaving the phone page stuck on "Starting…".
 
 ## Notes on the platform
 
@@ -104,3 +121,8 @@ phone (Me → Apps → Private builds).
 - Text-only changes are applied in place (no flicker); layout changes rebuild the page.
 - Android may suspend the WebView in the background; the client reconnects and the server
   re-sends the current page, so state is never lost (it lives on the server).
+- Connection profile (`omni.url`, `omni.token`) is stored through the Even App storage
+  bridge as plain strings; the client verifies the write by reading it back and logs
+  `profile saved` in the phone-side log.
+- Dev sideload and the installed app are separate app identities with separate storage:
+  each needs the token entered once.
