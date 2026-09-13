@@ -10,7 +10,7 @@ function cpuSnapshot() {
   return { idle, total }
 }
 
-/** @type {import('../shared/app.ts').OmniApp<{}, Mem>} */
+/** @type {import('../../shared/app.ts').OmniApp<{}, Mem>} */
 export default {
   title: 'System',
   order: 3,

@@ -9,7 +9,7 @@
 /** @typedef {{ open: number | null }} Mem */
 
 /**
- * @param {import('../shared/app.ts').AppContext<State, Mem>} ctx
+ * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx
  * @param {string} text
  * @param {{ notify?: boolean, ms?: number }} [opts]
  */
@@ -21,7 +21,7 @@ function add(ctx, text, opts = {}) {
   return { count: ctx.state.notes.length }
 }
 
-/** @type {import('../shared/app.ts').OmniApp<State, Mem>} */
+/** @type {import('../../shared/app.ts').OmniApp<State, Mem>} */
 export default {
   title: 'Notes',
   order: 5,

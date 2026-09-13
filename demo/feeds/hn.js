@@ -7,7 +7,7 @@ const REFRESH_MS = 5 * 60 * 1000
 /** @typedef {{ id: number, title: string, score: number, by: string, url?: string, descendants?: number }} Story */
 /** @typedef {{ stories: Story[], selected: number | null, loading: boolean, fetchedAt?: number, error?: string }} Mem */
 
-/** @param {import('../shared/app.ts').AppContext<{}, Mem>} ctx */
+/** @param {import('../../shared/app.ts').AppContext<{}, Mem>} ctx */
 async function load(ctx) {
   if (ctx.mem.loading) return
   ctx.mem.loading = true
@@ -26,7 +26,7 @@ async function load(ctx) {
   }
 }
 
-/** @type {import('../shared/app.ts').OmniApp<{}, Mem>} */
+/** @type {import('../../shared/app.ts').OmniApp<{}, Mem>} */
 export default {
   title: 'Hacker News',
   order: 4,

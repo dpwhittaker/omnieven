@@ -89,7 +89,7 @@ export default { title: 'Hello', render: () => 'Hello, glasses!' }
 
 Apps can be grouped into nested folders on the home screen — by sub-folder (`apps/time/…`)
 or by declaring `group: 'Time'`. Apps that declare a `settings` schema get their option
-screens rendered by the shell, reachable from the tap-and-hold menu. Demo apps: Hello,
+screens rendered by the shell, reachable from the tap-and-hold menu. Demo apps (in folders `time/`, `feeds/`, `tools/`, `system/`, `examples/`): Hello,
 Clock (full screen / corner / big digits, brightness, fade-away, wake when looking up or down
 via IMU — all from its settings), Stopwatch, System monitor (image sparkline), Hacker News
 (list → detail), Notes (inbox with webhook + JSON API), Voice memo (TypeScript, glasses mic → WAV).

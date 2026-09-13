@@ -3,7 +3,7 @@
 // a WAV in the app's data dir and a live level meter is drawn while recording.
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { OmniApp } from '../shared/app.ts'
+import type { OmniApp } from '../../shared/app.ts'
 
 interface Mem { recording: boolean; chunks: Buffer[]; level: number; startedAt: number; lastFile?: string; files: string[] }
 
