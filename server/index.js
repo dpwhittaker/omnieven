@@ -4,7 +4,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { WebSocketServer } from 'ws'
 import qrcodeTerminal from 'qrcode-terminal'
-import { CLIENT_DIST, HOST, PORT, PUBLIC_URL, TABS_DIR, TOKEN, VERSION, wsUrl } from './config.js'
+import { CLIENT_DIST, HOST, PORT, PUBLIC_URL, ROOT, TABS_DIR, TOKEN, VERSION, wsUrl } from './config.js'
 import { Connection } from './connection.js'
 import { Shell } from './shell.js'
 import { handleApi, sendJson } from './api.js'
@@ -51,6 +51,12 @@ const server = createServer(async (req, res) => {
     }
     if (p === '/' || p === '/setup') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(await setupPage(shell)); return
+    }
+    if (p === '/omni.ehpk') {
+      const f = join(ROOT, 'omni.ehpk')
+      if (!existsSync(f)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not packed yet: run `npm run pack`'); return }
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="omni.ehpk"', 'Content-Length': statSync(f).size })
+      createReadStream(f).pipe(res); return
     }
     if (await handleApi(req, res, url, shell)) return
     res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found')

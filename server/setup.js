@@ -1,12 +1,17 @@
 // The setup page: QR for sideloading, the token, and a live status panel.
 import QRCode from 'qrcode'
-import { PUBLIC_URL, TOKEN, VERSION, wsUrl } from './config.js'
+import { existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.js'
 
 export async function setupPage(shell) {
   const appUrl = `${PUBLIC_URL}/app/?token=${encodeURIComponent(TOKEN)}`
   const plainUrl = `${PUBLIC_URL}/app/`
   const qr = await QRCode.toString(appUrl, { type: 'svg', margin: 1, width: 260 })
   const api = `${PUBLIC_URL}/api`
+  const ehpkFile = join(ROOT, 'omni.ehpk')
+  const ehpk = existsSync(ehpkFile) ? statSync(ehpkFile).size : 0
+  const ehpkAt = ehpk ? statSync(ehpkFile).mtimeMs : 0
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Omni setup</title>
@@ -34,7 +39,9 @@ export async function setupPage(shell) {
 <p class="warn">The page must be reachable from the phone (public HTTPS, Tailscale, or same Wi-Fi). Set <code>PUBLIC_URL</code> to whatever the phone will use.</p>
 </div></div></div>
 <div class="card"><h2>2. Permanent install (optional)</h2>
-<p>Dev sideload is enough for personal use. For an installed app: <code>npm run pack</code> writes <code>client/app.json</code> whitelisting <code>${esc(PUBLIC_URL)}</code> and produces <code>omni.ehpk</code>; upload it at hub.evenrealities.com → Private builds, then install from Me → Apps → Private builds.</p></div>
+<p>Dev sideload is enough for personal use. For an installed app: <code>npm run pack</code> writes <code>client/app.json</code> whitelisting <code>${esc(PUBLIC_URL)}</code> and produces <code>omni.ehpk</code>.</p>
+<p>${ehpk ? `<a href="/omni.ehpk?token=${encodeURIComponent(TOKEN)}" style="color:#9ff0c0;font-weight:600">⬇ Download omni.ehpk</a> (${Math.round(ehpk / 1024)} KB, packed ${esc(new Date(ehpkAt).toLocaleString())})` : '<span class="warn">Not packed yet — run <code>npm run pack</code> on the server.</span>'}
+— upload it at <a href="https://hub.evenrealities.com" style="color:#9ff0c0">hub.evenrealities.com</a> → Private builds, then install from the phone: Me → Apps → Private builds. The installed app connects to <code>${esc(wsUrl())}</code>; paste the token once in its settings form.</p></div>
 <div class="card"><h2>3. Drive it</h2>
 <pre>T=${esc(TOKEN)}; A=${esc(api)}
 curl -s -H "Authorization: Bearer $T" $A/status
