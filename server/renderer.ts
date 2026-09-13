@@ -7,18 +7,29 @@ import type { CmdArgs, CmdOp, ImageObject, ListObject, PagePayload, TextObject }
 import type { Container, ExplicitView, ImageContainer, ListContainer, MenuItem, TextContainer, View } from '../shared/view.ts'
 
 export const SCREEN = { width: 576, height: 288, lineHeight: 27 } as const
+// Firmware limits. Text sizes are UTF-8 *bytes* (the simulator's changelog:
+// "text container bytes limit to 999", "list item text size maximum 63 bytes");
+// one oversized string makes the whole page rebuild fail on the glasses.
 const LIMITS = {
   containers: 12, textOrList: 8, images: 4,
-  textPage: 1000, textUpgrade: 2000, listItems: 20, listItemChars: 64,
+  textPageBytes: 999, textUpgradeBytes: 1999, listItems: 20, listItemBytes: 63,
   nameChars: 16, menuItems: 10, menuBytes: 32,
 }
 
 const clamp = (n: unknown, lo: number, hi: number) => Math.max(lo, Math.min(hi, Number(n) || 0))
 const trunc = (s: unknown, n: number) => { const str = String(s ?? ''); return str.length > n ? str.slice(0, n) : str }
 function truncBytes(s: unknown, n: number): string {
-  let str = String(s ?? '')
-  while (Buffer.byteLength(str, 'utf8') > n) str = str.slice(0, -1)
-  return str
+  const str = String(s ?? '')
+  if (Buffer.byteLength(str, 'utf8') <= n) return str
+  // Cut on a code point boundary without producing a dangling surrogate.
+  let out = ''
+  let bytes = 0
+  for (const ch of str) {
+    const b = Buffer.byteLength(ch, 'utf8')
+    if (bytes + b > n) break
+    out += ch; bytes += b
+  }
+  return out
 }
 
 export interface CompiledImage { containerID: number; containerName: string; png: string; hash: string }
@@ -116,7 +127,7 @@ export function compile(view: View, { forUpgrade = false } = {}): Compiled {
     if (kind === 'list') {
       const lc = c as ListContainer
       const raw = (lc.items || []).map((it) => typeof it === 'string' ? it : it?.label ?? String(it))
-      const items = raw.slice(0, LIMITS.listItems).map((s) => trunc(s, LIMITS.listItemChars) || ' ')
+      const items = raw.slice(0, LIMITS.listItems).map((s) => truncBytes(s, LIMITS.listItemBytes) || ' ')
       if (!items.length) items.push(' ')
       const containerName = uniqueName(lc.name, `list${containerID}`)
       listObject.push({
@@ -130,8 +141,8 @@ export function compile(view: View, { forUpgrade = false } = {}): Compiled {
     } else {
       const tc = c as TextContainer
       const containerName = uniqueName(tc.name, `text${containerID}`)
-      const limit = forUpgrade ? LIMITS.textUpgrade : LIMITS.textPage
-      const content = trunc(tc.text ?? '', limit) || ' '
+      const limit = forUpgrade ? LIMITS.textUpgradeBytes : LIMITS.textPageBytes
+      const content = truncBytes(tc.text ?? '', limit) || ' '
       const entry: TextObject = {
         ...geometry(tc), ...decoration(tc), containerID, containerName, zOrderIndex: containerID,
         isEventCapture: capture, content,
