@@ -1,10 +1,12 @@
-// Small LLM adapter: the Anthropic API when ANTHROPIC_API_KEY is set, otherwise
-// the local `claude` CLI (Claude Code, headless) — slower (~4 s) but no key needed.
+// Small LLM adapter. Routing by tier:
+//   fast  (cues)      GEMINI_API_KEY → Gemini Flash-Lite (~1 s) · else ANTHROPIC_API_KEY → Haiku · else `claude -p --model haiku`
+//   smart (summaries) ANTHROPIC_API_KEY → Sonnet · else the local `claude` CLI (Claude Code headless; ~5–10 s, no key needed)
 
 import { spawn } from 'node:child_process'
 
 const API_MODELS = { fast: 'claude-haiku-4-5-20251001', smart: 'claude-sonnet-5' }
 const CLI_MODELS = { fast: 'haiku', smart: 'sonnet' }
+const GEMINI_DEFAULT = 'gemini-3.5-flash-lite'
 
 /**
  * @param {{ env: Record<string, string | undefined>, fetch: typeof fetch, log?: (m: string) => void }} host
@@ -14,6 +16,22 @@ const CLI_MODELS = { fast: 'haiku', smart: 'sonnet' }
 export async function ask(host, req) {
   const model = req.model || 'fast'
   const timeoutMs = req.timeoutMs ?? 25_000
+  if (model === 'fast' && host.env.GEMINI_API_KEY) {
+    const name = host.env.GEMINI_MODEL || GEMINI_DEFAULT
+    const r = await host.fetch(`https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': host.env.GEMINI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: req.system }] },
+        contents: [{ role: 'user', parts: [{ text: req.prompt }] }],
+        generationConfig: { maxOutputTokens: req.maxTokens ?? 600, temperature: 0.1, responseMimeType: 'application/json' },
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`)
+    /** @type {any} */ const j = await r.json()
+    return (j.candidates?.[0]?.content?.parts || []).map((/** @type {any} */ p) => p.text || '').join('')
+  }
   if (host.env.ANTHROPIC_API_KEY) {
     const r = await host.fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

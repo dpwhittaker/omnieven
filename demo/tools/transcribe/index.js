@@ -143,7 +143,8 @@ async function makeCue(ctx) {
   const system = `You whisper one short cue into someone's smart glasses during a live conversation. ${profile(ctx) ? `About them:\n${profile(ctx)}\n` : ''}
 Rules: reply with JSON only. Offer a cue ONLY if it genuinely helps right now; otherwise {"type":"none"}.
 Types: "definition" (a term/acronym just came up that they may need explained), "recall" (something relevant from a past conversation — cite its date), "prep" (a point from their prep notes that fits now), "answer" (a factual question was asked that the material answers), "person" (who a mentioned person is, from past sessions), "todo" (a concrete task for the user emerged — phrase it as an action), "reminder" (an open action item of theirs is relevant).
-"text" ≤ 110 characters, plain, no preamble. For "todo" also give {"todo":{"text":"…","due":"optional"}}. Don't repeat a cue already given. Prefer "none" over noise.`
+"text" ≤ 110 characters, plain, no preamble. For "todo" also give {"todo":{"text":"…","due":"optional"}}. Don't repeat a cue already given. Prefer "none" over noise.
+Never invent facts, numbers, names or sources: "answer", "recall" and "person" may only state what is literally in the prep notes or past-conversation excerpts below (quote the date for recall). If the material doesn't contain it, use "definition" for general knowledge you are sure of, or "none".`
   const prompt = `${ctx.state.prep ? `Prep notes:\n${ctx.state.prep}\n\n` : ''}${past ? `From past conversations:\n${past}\n\n` : ''}${openTodos.length ? `Their open action items:\n${openTodos.map((t) => `- ${t.text}${t.due ? ` (${t.due})` : ''}`).join('\n')}\n\n` : ''}Recent cues already shown: ${m.cueHistory?.slice(-4).join(' | ') || 'none'}\n\nLast ~minute of the conversation (speaker numbers in brackets, 0 is usually the user):\n${recent}\n\nJSON:`
   const raw = await ask(ctx, { model: 'fast', maxTokens: 200, timeoutMs: 15_000, system, prompt })
   const j = parseJson(raw)
