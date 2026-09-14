@@ -120,6 +120,13 @@ export interface OmniApp<S = Record<string, any>, M = Record<string, any>> {
   onMessage?(ctx: AppContext<S, M>, msg: any): unknown
   /** any other request under /api/apps/<id>/… (webhooks, the app's own API) */
   http?(ctx: AppContext<S, M>, req: HttpRequest): HttpResponse | Promise<HttpResponse>
+  /**
+   * Phone-side page for this app (shown in the Omni companion's Apps tab and at
+   * /api/apps/<id>/phone). Return an HTML fragment; it is wrapped in a page that
+   * provides `omni.api(path, opts)` (fetch under /api/apps/<id>/ with the token),
+   * `omni.url(path)` (tokenised URL for links/downloads) and `omni.reload()`.
+   */
+  phone?(ctx: AppContext<S, M>, req: HttpRequest): string | Promise<string>
   onOpen?(ctx: AppContext<S, M>): void
   onClose?(ctx: AppContext<S, M>): void
   onAudio?(ctx: AppContext<S, M>, pcm: Uint8Array): void

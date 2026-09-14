@@ -180,6 +180,26 @@ Return `true` to consume a gesture. Otherwise the user's **in-app default bindin
 The contextual menu (tap-and-hold on the touchpad) shows your `menu` items first, then
 your settings entry and **Home** (other apps only if the user configured that).
 
+## Phone page
+
+Apps can have a screen on the **phone** too — the Omni companion (the page the Even app
+shows, also usable in any browser at `<PUBLIC_URL>/app/?token=…`) lists every app with
+*Open* / *Settings* buttons and a *Phone page* button for apps that implement `phone`:
+
+```js
+phone(ctx) {
+  return `<h1>My app</h1><button id="go">Do it</button>
+    <script>document.getElementById('go').onclick = () => omni.api('/do', { method: 'POST' }).then(omni.reload)</script>`
+},
+http(ctx, req) { if (req.path === '/do' && req.method === 'POST') { …; return { ok: true } } },
+```
+
+The fragment is wrapped in a styled page that provides `omni.api(path, opts)` (fetch under
+`/api/apps/<id>/` with the token), `omni.url(path)` (tokenised URL — use it for `<a download>`
+links and `<audio src>`) and `omni.reload()`. Binary responses come from `http` as
+`{ status, headers: { 'content-type': … }, body: Buffer }` — see `demo/tools/voice.ts`, whose
+phone page plays, downloads and deletes the WAV memos recorded on the glasses.
+
 ## HTTP surface of an app
 
 | Route | Handler |
@@ -188,6 +208,7 @@ your settings entry and **Home** (other apps only if the user configured that).
 | `POST /api/apps/<id>/open`, `/reload` | shell actions |
 | `POST /api/apps/<id>/message` (JSON) | `onMessage(ctx, body)` → `{ok, result}` |
 | `GET/PUT /api/apps/<id>/state` | read / merge `ctx.state` |
+| `GET /api/apps/<id>/phone` | the app's phone page (`phone` hook) |
 | anything else under `/api/apps/<id>/…` | `http(ctx, { method, path, query, body, headers })` |
 
 All require the bearer token (`Authorization: Bearer …` or `?token=…`, which is how webhooks

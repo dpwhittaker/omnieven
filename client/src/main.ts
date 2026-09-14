@@ -14,6 +14,7 @@ import {
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import { OmniSocket } from './ws'
+import { Companion } from './companion'
 import { CLIENT_VERSION, type ClientFrame, type Cmd, type ServerFrame } from './protocol'
 
 // Stored through the Even App storage bridge as two plain strings (older
@@ -33,6 +34,8 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const elUrl = $<HTMLInputElement>('url')
 const elToken = $<HTMLInputElement>('token')
 const elStatus = $<HTMLDivElement>('status')
+const elDot = $<HTMLSpanElement>('dot')
+const companion = new Companion()
 const elLog = $<HTMLPreElement>('log')
 const elSave = $<HTMLButtonElement>('save')
 const elDisconnect = $<HTMLButtonElement>('disconnect')
@@ -50,6 +53,7 @@ function log(msg: string, level: 'info' | 'warn' | 'error' = 'info') {
 function setStatus(text: string, cls: 'ok' | 'bad' | 'wait') {
   elStatus.textContent = text
   elStatus.className = `status ${cls}`
+  elDot.className = `dot ${cls}`
 }
 
 // Default server = wherever this page was served from (the Omni server hosts
@@ -79,6 +83,7 @@ const sock = new OmniSocket({
     setStatus('Connected', 'ok')
     log('socket open')
     void sendHello()
+    companion.start()
   },
   onClose: (reason) => {
     setStatus(`Disconnected (${reason || 'closed'}) – retrying`, 'wait')
@@ -287,6 +292,7 @@ function connectWith(p: Profile) {
   if (!p.url) { setStatus('Enter the server URL', 'bad'); return }
   if (!p.token) { setStatus('Enter the token', 'bad'); return }
   setStatus(`Connecting to ${p.url}`, 'wait')
+  companion.configure(p.url, p.token)
   const u = new URL(p.url)
   u.searchParams.set('token', p.token)
   sock.disconnect()
@@ -299,8 +305,14 @@ async function boot() {
   try {
     bridge = await waitForEvenAppBridge()
   } catch (err) {
-    setStatus('Not running inside the Even App', 'bad')
-    log(String(err), 'error')
+    // Plain browser (no Even App bridge): the Apps tab still works as a
+    // companion page when the token is in the URL.
+    setStatus('Not inside the Even App — companion mode only', 'wait')
+    log(String(err), 'warn')
+    const token = tokenFromQuery()
+    const url = defaultUrl()
+    elUrl.value = url; elToken.value = token
+    if (token && url) { companion.configure(url, token); companion.start() } else companion.showTab('connect')
     return
   }
   bridge.onLaunchSource((src) => { launchSource = src; sendFrame({ t: 'launch', source: src }) })
@@ -320,10 +332,10 @@ async function boot() {
     await saveProfile(p)
     connectWith(p)
   }
-  elDisconnect.onclick = () => { sock.disconnect(); setStatus('Disconnected', 'bad') }
+  elDisconnect.onclick = () => { sock.disconnect(); companion.stop(); setStatus('Disconnected', 'bad') }
 
   if (profile.url && profile.token) connectWith(profile)
-  else setStatus('Enter server URL and token, then Save', 'wait')
+  else { setStatus('Enter server URL and token, then Save', 'wait'); companion.showTab('connect') }
 }
 
 void boot()

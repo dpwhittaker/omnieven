@@ -1,9 +1,14 @@
 // Voice memo — a TypeScript app (Node runs .ts natively) showing the mic:
 // tap to record from the glasses mic, tap again to stop; the PCM is saved as
 // a WAV in the app's data dir and a live level meter is drawn while recording.
-import { writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OmniApp } from '../../shared/app.ts'
+
+const safeName = (n: unknown) => String(n ?? '').replace(/[^A-Za-z0-9._-]/g, '')
+function listFiles(dir: string) {
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.wav')).sort().reverse().map((name) => ({ name, bytes: statSync(join(dir, name)).size })) : []
+}
 
 interface Mem { recording: boolean; chunks: Buffer[]; level: number; startedAt: number; lastFile?: string; files: string[] }
 
@@ -84,4 +89,32 @@ export default {
   },
 
   onClose(ctx) { if (ctx.mem.recording) { void ctx.audio(false); ctx.mem.recording = false } },
+
+  // Phone side: play, download or delete the memos.
+  http(ctx, req) {
+    const files = listFiles(ctx.dataDir)
+    if (req.method === 'GET' && req.path === '/files') return { files }
+    const m = req.path.match(/^\/file\/([^/]+)$/)
+    if (m) {
+      const name = safeName(decodeURIComponent(m[1]))
+      const file = join(ctx.dataDir, name)
+      if (!name.endsWith('.wav') || !existsSync(file)) return { status: 404, json: { error: 'no such memo' } }
+      if (req.method === 'GET') return { status: 200, headers: { 'content-type': 'audio/wav', 'content-disposition': `${req.query.download ? 'attachment' : 'inline'}; filename="${name}"`, 'cache-control': 'no-store' }, body: readFileSync(file) }
+      if (req.method === 'DELETE') { unlinkSync(file); ctx.mem.files = ctx.mem.files.filter((f) => f !== name); ctx.render(); return { ok: true } }
+    }
+    return undefined
+  },
+
+  phone(ctx) {
+    const files = listFiles(ctx.dataDir)
+    const rows = files.map((f) => `<div class="card"><b>${f.name.replace(/^memo-|\.wav$/g, '').replace('T', ' ').replace(/-(\d\d)-(\d\d)-\d+Z$/, ':$1:$2')}</b> <span class="muted">${(f.bytes / 32000).toFixed(1)} s · ${(f.bytes / 1024).toFixed(0)} KB</span>
+      <audio controls preload="none"></audio>
+      <div class="row"><a class="btn" download="${f.name}" data-file="${f.name}">Download WAV</a><button class="secondary" data-del="${f.name}">Delete</button></div></div>`).join('')
+    return `<h1>Voice memos</h1><p class="muted">Recorded on the glasses (16 kHz mono). ${files.length ? '' : 'None yet — open the app on the glasses and tap to record.'}</p>${rows}
+      <script>
+        for (const a of document.querySelectorAll('audio')) a.src = omni.url('/file/' + encodeURIComponent(a.closest('.card').querySelector('[data-file]').dataset.file))
+        for (const a of document.querySelectorAll('[data-file]')) a.href = omni.url('/file/' + encodeURIComponent(a.dataset.file) + '?download=1')
+        for (const b of document.querySelectorAll('[data-del]')) b.onclick = () => omni.api('/file/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' }).then(omni.reload)
+      </script>`
+  },
 } satisfies OmniApp<{}, Mem>

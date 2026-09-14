@@ -154,6 +154,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
         sendJson(res, 200, { ok: true, state: app.state }); return true
       }
       if (m === 'POST' && rest === '/reload') { await shell.registry.load(id, app.file); sendJson(res, 200, { ok: true }); return true }
+      if (m === 'GET' && rest === '/phone') {
+        if (typeof app.mod?.phone !== 'function') { sendJson(res, 404, { error: `app ${id} has no phone page` }); return true }
+        const fragment = await (app.mod.phone.call(app.mod, app.ctx!, { method: m, path: '/phone', query: Object.fromEntries(url.searchParams), body: null, headers: req.headers }) as string | Promise<string>)
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end(phonePage(id, app.title, String(fragment ?? ''), tokenOf(req, url)))
+        return true
+      }
 
       // Anything else under /api/apps/:id/ goes to the app's own `http` hook,
       // so an app can expose webhooks and its own JSON API.
@@ -177,3 +184,31 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
 }
 
 function sub(emitter: EventEmitter, name: string, fn: (...a: any[]) => void): () => void { emitter.on(name, fn); return () => { emitter.off(name, fn) } }
+
+function tokenOf(req: IncomingMessage, url: URL): string {
+  const h = req.headers.authorization
+  return h?.startsWith('Bearer ') ? h.slice(7).trim() : url.searchParams.get('token') || ''
+}
+
+/** Wrap an app's phone fragment in a self-contained page with the omni helper. */
+function phonePage(id: string, title: string, fragment: string, token: string): string {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c])
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>${esc(title)}</title>
+<style>
+html,body{margin:0;background:#232323;color:#e5e5e5;font:15px/1.45 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:14px}h1,h2,h3{margin:0 0 8px;font-size:17px}h3{font-size:15px;color:#9ff0c0}p{margin:6px 0}
+a{color:#9fd0ff}button,.btn{font:inherit;padding:9px 12px;border-radius:8px;border:0;background:#3fbf7f;color:#0b1f14;font-weight:600;display:inline-block;text-decoration:none}
+button.secondary,.btn.secondary{background:#3a3a3a;color:#ddd}button:disabled{opacity:.5}
+input,select{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #444;background:#161616;color:#eee;width:100%;box-sizing:border-box}
+ul{padding-left:18px}li{margin:4px 0}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}.muted{color:#999;font-size:13px}
+.card{background:#2b2b2b;border-radius:10px;padding:12px;margin:10px 0}audio{width:100%}
+</style></head><body>
+<script>
+window.omni={id:${JSON.stringify(id)},token:${JSON.stringify(token)},
+ url:(p)=>'/api/apps/'+${JSON.stringify(id)}+(p.startsWith('/')?p:'/'+p)+(p.includes('?')?'&':'?')+'token='+encodeURIComponent(${JSON.stringify(token)}),
+ api:async(p,o={})=>{const r=await fetch(window.omni.url(p),{...o,headers:{'content-type':'application/json',...(o.headers||{})},body:o.body&&typeof o.body!=='string'?JSON.stringify(o.body):o.body});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j=t}if(!r.ok)throw new Error((j&&j.error)||r.statusText);return j},
+ reload:()=>location.reload()};
+</script>
+${fragment}
+</body></html>`
+}

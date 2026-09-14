@@ -56,6 +56,8 @@ curl -s -H "Authorization: Bearer $T" -X POST $A/apps/notes/message -H 'content-
 4. Keep `render()` pure and fast; do I/O in `init`/timers/handlers and call `ctx.render()`.
    Apps with options: declare a `settings` schema (the shell renders the screens and adds a
    menu item) and accept the same keys in `onMessage`; see `demo/time/clock/index.js`.
+   Anything the user should do on the phone (downloads, forms, lists) goes in a `phone(ctx)`
+   HTML fragment (helpers `omni.api/url/reload`); see `demo/tools/voice.ts`.
 5. Test with the fake client and `GET /api/screen`; then confirm on hardware if available.
 
 ## Server changes

@@ -92,7 +92,14 @@ or by declaring `group: 'Time'`. Apps that declare a `settings` schema get their
 screens rendered by the shell, reachable from the tap-and-hold menu. Demo apps (in folders `time/`, `feeds/`, `tools/`, `system/`, `examples/`): Hello,
 Clock (full screen / corner / big digits, brightness, fade-away, wake when looking up or down
 via IMU — all from its settings), Stopwatch, System monitor (image sparkline), Hacker News
-(list → detail), Notes (inbox with webhook + JSON API), Voice memo (TypeScript, glasses mic → WAV).
+(article text + comments), Notes (inbox with webhook + JSON API), Voice memo (TypeScript,
+glasses mic → WAV, play/download from the phone), RoyalRoad (reads your library from the
+companion [royalroad](https://github.com/lettucegoblin/royalroad) service, position shared
+with its web reader).
+
+**The phone app is a companion too.** Its *Apps* tab lists your apps (open on the glasses,
+open their settings) and shows each app's own phone page (`phone` hook) — e.g. the voice
+memo downloads. It also works in a normal browser at `<PUBLIC_URL>/app/?token=…`.
 
 ## Using it on the glasses
 
