@@ -7,19 +7,23 @@
 //   live    captions scroll; a cue appears in the dim box at the bottom
 //           tap: stop · swipe up: accept the suggested to-do (adds to Todoist) · swipe down: dismiss cue
 //   review  tap: next page · menu: Add all to-dos to Todoist, Add to-do N…, Back
-//   phone   prep notes editor, session history with summaries and transcripts
+//   phone   prep notes editor, session history with summaries and transcripts, Conversate import,
+//           brain map (knowledge vault built by brain-map.mjs) browser + "update now"
+//   knowledge  menu → Knowledge: browse the vault on the glasses (folders → notes → pages)
 // Needs DEEPGRAM_API_KEY in .env. Summaries/cues use ANTHROPIC_API_KEY if set,
 // else the local `claude` CLI. Who-you-are context: data/profile.md.
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { existsSync, openSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { openStream } from './deepgram.js'
 import { ask, parseJson } from './llm.js'
 import { Store } from './store.js'
 
 /** @typedef {{ prep: string, cues: boolean, todos: boolean, lines: number }} State */
 /** @typedef {{ type: 'definition'|'recall'|'prep'|'answer'|'person'|'todo'|'reminder', text: string, source?: string, todo?: { text: string, due?: string }, shownAt: number }} Cue */
-/** @typedef {{ screen: 'idle'|'live'|'review'|'sessions', store: Store | null, stream: ReturnType<typeof openStream> | null, sessionId: number,
+/** @typedef {{ screen: 'idle'|'live'|'review'|'sessions'|'notes'|'note', store: Store | null, notesIndexedAt: number, noteFolder: string, noteList: { path: string, title: string }[], noteWindow: number, note: { title: string, pages: string[] } | null, brainMapRunning: boolean, stream: ReturnType<typeof openStream> | null, sessionId: number,
  *   finals: { t: number, speaker: number | null, text: string }[], interim: string, startedAt: number, error: string, status: string,
  *   cue: Cue | null, cueBusy: boolean, lastCueAt: number, lastCueWords: number, tick: any, keepTick: any,
  *   review: import('./store.js').Session | null, page: number, sessions: import('./store.js').Session[], summarizing: boolean, cueHistory?: string[] }} Mem */
@@ -35,6 +39,42 @@ function profile(ctx) {
   const f = join(ctx.dataDir, '..', '..', 'profile.md')   // data/profile.md
   return existsSync(f) ? readFileSync(f, 'utf8') : ''
 }
+/** Keep the vault index fresh (cheap; at most every 2 min). @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx */
+function indexNotes(ctx, force = false) {
+  const m = ctx.mem
+  if (!force && Date.now() - (m.notesIndexedAt || 0) < 120_000) return
+  m.notesIndexedAt = Date.now()
+  try { const n = store(ctx).indexNotes(); if (force) ctx.log(`indexed ${n} vault notes`) } catch (err) { ctx.log(`note index: ${err instanceof Error ? err.message : err}`) }
+}
+const MARKER = 'brain-map.json'
+/** Last brain-map run info. @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx */
+function brainMapStatus(ctx) {
+  const f = join(ctx.dataDir, '.' + MARKER)
+  /** @type {{ done: string[], runs: { at: string, files: number, secs: number }[] }} */
+  const mk = existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : { done: [], runs: [] }
+  return { lastRun: mk.runs[mk.runs.length - 1] || null, sessionsFolded: mk.done.length, notes: store(ctx).listNotes().length, running: !!ctx.mem.brainMapRunning }
+}
+/** Run brain-map.mjs (Claude Code headless) in the background. @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx */
+function runBrainMap(ctx, all = false) {
+  const m = ctx.mem
+  if (m.brainMapRunning) return false
+  m.brainMapRunning = true
+  const script = join(dirname(fileURLToPath(import.meta.url)), 'brain-map.mjs')
+  const log = openSync(join(ctx.dataDir, 'brain-map.log'), 'a')
+  const child = spawn(process.execPath, [script, ...(all ? ['--all'] : [])], {
+    cwd: join(ctx.dataDir, '..', '..', '..'), stdio: ['ignore', log, log],
+    env: { ...process.env, OMNI_DATA_DIR: join(ctx.dataDir, '..', '..'), CLAUDE_CLI: ctx.env.CLAUDE_CLI || 'claude', BRAIN_MAP_MODEL: ctx.env.BRAIN_MAP_MODEL || 'sonnet' },
+  })
+  child.on('close', (code) => {
+    m.brainMapRunning = false
+    indexNotes(ctx, true)
+    ctx.notify(code === 0 ? `Brain map updated (${store(ctx).listNotes().length} notes)` : `Brain map run failed (exit ${code}) — see brain-map.log`, { ms: 3000 })
+    if (ctx.active) ctx.render()
+  })
+  child.on('error', (err) => { m.brainMapRunning = false; ctx.log(`brain-map: ${err.message}`) })
+  return true
+}
+
 /** @param {Mem} m */
 const transcript = (m) => m.finals.map((f) => f.text).join(' ')
 const words = (/** @type {string} */ s) => (s.match(/\S+/g) || []).length
@@ -203,15 +243,19 @@ async function makeCue(ctx) {
   const recent = m.finals.filter((f) => Date.now() - m.startedAt - f.t < 75_000).map((f) => `${f.speaker != null ? `[${f.speaker}] ` : ''}${f.text}`).join('\n')
   if (!recent) return
   const s = store(ctx)
-  const hits = s.search(keyTerms(recent), m.sessionId)
+  indexNotes(ctx)
+  const terms = keyTerms(recent)
+  const hits = s.search(terms, m.sessionId)
+  const notes = s.searchNotes(terms)
   const openTodos = s.openActions(8)
   const past = hits.map((h) => `- ${new Date(h.started).toISOString().slice(0, 10)} "${h.title}": ${h.snippet}`).join('\n')
+  const vault = notes.map((n) => `- ${n.title} (${n.path}): ${n.snippet}`).join('\n')
   const system = `You whisper one short cue into someone's smart glasses during a live conversation. ${profile(ctx) ? `About them:\n${profile(ctx)}\n` : ''}
 Rules: reply with JSON only. Offer a cue ONLY if it genuinely helps right now; otherwise {"type":"none"}.
 Types: "definition" (a term/acronym just came up that they may need explained), "recall" (something relevant from a past conversation — cite its date), "prep" (a point from their prep notes that fits now), "answer" (a factual question was asked that the material answers), "person" (who a mentioned person is, from past sessions), "todo" (a concrete task for the user emerged — phrase it as an action), "reminder" (an open action item of theirs is relevant).
 "text" ≤ 110 characters, plain, no preamble. For "todo" also give {"todo":{"text":"…","due":"optional"}}. Don't repeat a cue already given. Prefer "none" over noise.
-Never invent facts, numbers, names or sources: "answer", "recall" and "person" may only state what is literally in the prep notes or past-conversation excerpts below (quote the date for recall). If the material doesn't contain it, use "definition" for general knowledge you are sure of, or "none".`
-  const prompt = `${ctx.state.prep ? `Prep notes:\n${ctx.state.prep}\n\n` : ''}${past ? `From past conversations:\n${past}\n\n` : ''}${openTodos.length ? `Their open action items:\n${openTodos.map((t) => `- ${t.text}${t.due ? ` (${t.due})` : ''}`).join('\n')}\n\n` : ''}Recent cues already shown: ${m.cueHistory?.slice(-4).join(' | ') || 'none'}\n\nLast ~minute of the conversation (speaker numbers in brackets, 0 is usually the user):\n${recent}\n\nJSON:`
+Never invent facts, numbers, names or sources: "answer", "recall" and "person" may only state what is literally in the prep notes, knowledge-base notes or past-conversation excerpts below (quote the date for recall). If the material doesn't contain it, use "definition" for general knowledge you are sure of, or "none".`
+  const prompt = `${ctx.state.prep ? `Prep notes:\n${ctx.state.prep}\n\n` : ''}${vault ? `From the user's knowledge base (curated from past conversations):\n${vault}\n\n` : ''}${past ? `From past conversations:\n${past}\n\n` : ''}${openTodos.length ? `Their open action items:\n${openTodos.map((t) => `- ${t.text}${t.due ? ` (${t.due})` : ''}`).join('\n')}\n\n` : ''}Recent cues already shown: ${m.cueHistory?.slice(-4).join(' | ') || 'none'}\n\nLast ~minute of the conversation (speaker numbers in brackets, 0 is usually the user):\n${recent}\n\nJSON:`
   const raw = await ask(ctx, { model: 'fast', maxTokens: 200, timeoutMs: 15_000, system, prompt })
   const j = parseJson(raw)
   if (!j || !j.type || j.type === 'none' || !j.text || m.screen !== 'live') return
@@ -242,6 +286,8 @@ export default {
     const m = ctx.mem
     m.screen = 'idle'; m.finals ??= []; m.interim = ''; m.error = ''; m.status = ''; m.cue = null; m.cueBusy = false
     m.lastCueAt = 0; m.lastCueWords = 0; m.review = null; m.page = 0; m.sessions = []; m.summarizing = false
+    m.notesIndexedAt = 0; m.noteFolder = ''; m.noteList = []; m.noteWindow = 0; m.note = null; m.brainMapRunning ??= false
+    setTimeout(() => indexNotes(ctx, true), 500)
   },
   onClose(ctx) { if (ctx.mem.screen === 'live') void stop(ctx) },
   // mem survives a hot reload; drop the Store so the reloaded class is used
@@ -287,6 +333,26 @@ export default {
       }
     }
 
+    if (m.screen === 'note' && m.note) {
+      const page = Math.min(m.page, m.note.pages.length - 1)
+      return { containers: [header(`${m.note.title}  ·  ${page + 1}/${m.note.pages.length}  ·  tap: next  ·  double-tap: back`),
+        { type: 'text', name: 'body', x: 0, y: HEADER, w: W, h: H - HEADER, padding: PAD, capture: true, text: m.note.pages[page] }] }
+    }
+    if (m.screen === 'notes') {
+      if (!m.noteFolder) {
+        const folders = [...new Set(m.noteList.map((n) => (n.path.includes('/') ? n.path.split('/')[0] : '(overview)')))].sort()
+        return { containers: [header(`Knowledge  ·  ${m.noteList.length} notes  ·  double-tap: back`),
+          folders.length ? { type: 'list', name: 'folders', x: 0, y: HEADER, w: W, h: H - HEADER, capture: true, items: folders.map((f) => `${f}  (${m.noteList.filter((n) => (n.path.includes('/') ? n.path.split('/')[0] : '(overview)') === f).length})`) }
+            : { type: 'text', name: 'body', x: 0, y: HEADER, w: W, h: H - HEADER, padding: PAD, capture: true, text: 'No notes yet — run the brain map from the phone page (menu: Update brain map).' }],
+          menu: [{ id: 'brain-map', label: m.brainMapRunning ? 'Brain map: running…' : 'Update brain map' }, { id: 'back', label: 'Back' }] }
+      }
+      const inFolder = m.noteList.filter((n) => (n.path.includes('/') ? n.path.split('/')[0] : '(overview)') === m.noteFolder)
+      const start = Math.max(0, Math.min(m.noteWindow, inFolder.length - 20))
+      const slice = inFolder.slice(start, start + 20)
+      return { containers: [header(`${m.noteFolder}  ·  ${start + 1}–${start + slice.length} of ${inFolder.length}  ·  double-tap: back`),
+        { type: 'list', name: 'notes', x: 0, y: HEADER, w: W, h: H - HEADER, capture: true, items: slice.map((n) => ctx.ui.fit(n.title, 540)) }],
+        menu: [...(inFolder.length > 20 ? [{ id: 'earlier', label: 'Earlier notes' }, { id: 'later', label: 'Later notes' }] : []), { id: 'back', label: 'Back' }] }
+    }
     if (m.screen === 'sessions') {
       const items = m.sessions.map((x) => ctx.ui.fit(`${new Date(x.started).toLocaleDateString(ctx.locale, { month: 'short', day: 'numeric', timeZone: ctx.tz })}  ${x.title || 'Untitled'}`, 540))
       return { containers: [header(`Sessions  ·  ${m.sessions.length}  ·  tap: open  ·  double-tap: back`),
@@ -299,7 +365,7 @@ export default {
     return {
       containers: [header(`Transcribe  ·  tap: start  ·  cues ${s.cues ? 'on' : 'off'}`),
         { type: 'text', name: 'body', x: 0, y: HEADER, w: W, h: H - HEADER, padding: PAD, capture: true, text: `Prep notes:\n${prep}` }],
-      menu: [{ id: 'start', label: 'Start' }, { id: 'sessions', label: 'Sessions' }, ...(s.prep ? [{ id: 'clear-prep', label: 'Clear prep notes' }] : [])],
+      menu: [{ id: 'start', label: 'Start' }, { id: 'sessions', label: 'Sessions' }, { id: 'knowledge', label: 'Knowledge' }, ...(s.prep ? [{ id: 'clear-prep', label: 'Clear prep notes' }] : [])],
     }
   },
 
@@ -325,6 +391,29 @@ export default {
         if (ev.type === 'select') { const x = m.sessions[ev.index]; if (x) { m.review = x; m.page = 0; m.screen = 'review'; ctx.render() } return true }
         if (ev.type === 'double') { m.screen = 'idle'; ctx.render(); return true }
         return
+      case 'notes': {
+        if (ev.type === 'double') { if (m.noteFolder) m.noteFolder = ''; else m.screen = 'idle'; ctx.render(); return true }
+        if (ev.type !== 'select') return
+        if (!m.noteFolder) {
+          const folders = [...new Set(m.noteList.map((n) => (n.path.includes('/') ? n.path.split('/')[0] : '(overview)')))].sort()
+          if (folders[ev.index]) { m.noteFolder = folders[ev.index]; m.noteWindow = 0; ctx.render() }
+          return true
+        }
+        const inFolder = m.noteList.filter((n) => (n.path.includes('/') ? n.path.split('/')[0] : '(overview)') === m.noteFolder)
+        const start = Math.max(0, Math.min(m.noteWindow, inFolder.length - 20))
+        const n = inFolder[start + ev.index]
+        if (n) {
+          const text = (store(ctx).readNote(n.path) || '').replace(/^---[\s\S]*?---\n/, '').replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, (_, p) => p.split('/').pop()).replace(/^#+\s*/gm, '').replace(/\*\*/g, '')
+          m.note = { title: n.title, pages: ctx.ui.paginate(text, { widthPx: W - 16, lines: Math.floor((H - HEADER - 2 * PAD) / LINE) }) }
+          m.page = 0; m.screen = 'note'; ctx.render()
+        }
+        return true
+      }
+      case 'note':
+        if (ev.type === 'tap') { m.page++; ctx.render(); return true }
+        if (ev.type === 'up') { m.page = Math.max(0, m.page - 1); ctx.render(); return true }
+        if (ev.type === 'double') { m.screen = 'notes'; ctx.render(); return true }
+        return
     }
   },
 
@@ -335,6 +424,10 @@ export default {
     if (id === 'discard') return void stop(ctx, false)
     if (id === 'add-cue' && m.cue?.todo) { const t = m.cue.todo; m.cue = null; ctx.render(); return void addTodo(ctx, t) }
     if (id === 'sessions') { m.sessions = store(ctx).list(20); m.screen = 'sessions'; return ctx.render() }
+    if (id === 'knowledge') { indexNotes(ctx, true); m.noteList = store(ctx).listNotes(); m.noteFolder = ''; m.screen = 'notes'; return ctx.render() }
+    if (id === 'brain-map') { runBrainMap(ctx) ? ctx.notify('Brain map: running (a few minutes)…', { ms: 2000 }) : ctx.notify('Brain map already running', { ms: 1500 }); return }
+    if (id === 'earlier') { m.noteWindow -= 20; return ctx.render() }
+    if (id === 'later') { m.noteWindow += 20; return ctx.render() }
     if (id === 'back') { m.screen = 'idle'; return ctx.render() }
     if (id === 'clear-prep') { ctx.state.prep = ''; ctx.save(); return ctx.render() }
     if (id === 'todo-all' && m.review) { for (const a of m.review.actions) void addTodo(ctx, a); return }
@@ -357,6 +450,10 @@ export default {
     if (req.path === '/prep' && req.method === 'POST') { const b = /** @type {any} */ (req.body); ctx.state.prep = String(b?.prep ?? '').slice(0, 4000); ctx.save(); ctx.render(); return { ok: true } }
     if (req.path === '/todo' && req.method === 'POST') { const b = /** @type {any} */ (req.body); if (b?.text) void addTodo(ctx, { text: String(b.text), due: b.due }); return { ok: true } }
     if (req.path === '/live') return { screen: ctx.mem.screen, text: transcript(ctx.mem), interim: ctx.mem.interim, cue: ctx.mem.cue }
+    if (req.path === '/brain-map' && req.method === 'POST') { const started = runBrainMap(ctx, !!req.query.all); return { ok: started, running: true, ...(started ? {} : { note: 'already running' }) } }
+    if (req.path === '/brain-map') return brainMapStatus(ctx)
+    if (req.path === '/notes') { indexNotes(ctx); return { notes: s.listNotes() } }
+    if (req.path === '/note') { const t = s.readNote(String(req.query.path || '')); return t == null ? { status: 404, json: { error: 'no such note' } } : { status: 200, headers: { 'content-type': 'text/markdown; charset=utf-8' }, body: t } }
     if (req.path === '/resummarize' && req.method === 'POST') {
       const id = Number(req.query.id || /** @type {any} */ (req.body)?.id)
       const x = s.get(id)
@@ -390,12 +487,27 @@ export default {
         <textarea id="prep" rows="6" style="width:100%">${esc(ctx.state.prep)}</textarea>
         <div class="row" style="margin-top:8px"><button id="save-prep" class="primary">Save prep notes</button>${m.screen === 'idle' ? '<button id="start">Start on the glasses</button>' : m.screen === 'live' ? '<button id="stop">Stop</button>' : ''}</div>
       </div>
+      <div class="card"><b>Brain map</b> <small class="muted" id="bm-status"></small>
+        <p class="muted">A knowledge vault distilled from your sessions — people, tools, terms, projects, decisions, open items. Cues quote it during conversations. Runs nightly; update now after importing.</p>
+        <div class="row"><button id="bm-run">Update brain map</button></div>
+        <div id="bm-notes" style="margin-top:8px"></div>
+        <pre id="bm-view" style="display:none;white-space:pre-wrap;margin-top:8px"></pre>
+      </div>
       <div class="card"><b>Import from Conversate</b>
         <p class="muted">In the Even app open a conversation → Share → TXT, then pick the file(s) here. Each becomes a session with a summary, searchable for cues.</p>
         <input type="file" id="import" accept=".txt,text/plain" multiple /> <span id="import-status" class="muted"></span>
       </div>
       ${cards || '<p class="muted">No sessions yet — tap the glasses to start one.</p>'}
       <script>
+        const bmStatus = () => omni.api('/brain-map').then((s) => { document.getElementById('bm-status').textContent = (s.running ? '● running… ' : '') + s.notes + ' notes · ' + s.sessionsFolded + ' sessions folded' + (s.lastRun ? ' · last run ' + new Date(s.lastRun.at).toLocaleString() + ' (' + s.lastRun.secs + ' s)' : ''); if (s.running) setTimeout(bmStatus, 5000) })
+        bmStatus()
+        document.getElementById('bm-run').onclick = () => omni.api('/brain-map', { method: 'POST' }).then(bmStatus)
+        omni.api('/notes').then(({ notes }) => {
+          const byFolder = {}; for (const n of notes) { const f = n.path.includes('/') ? n.path.split('/')[0] : 'overview'; (byFolder[f] ??= []).push(n) }
+          const el = document.getElementById('bm-notes')
+          el.innerHTML = Object.keys(byFolder).sort().map((f) => '<details><summary>' + f + ' (' + byFolder[f].length + ')</summary><ul class="rows">' + byFolder[f].map((n) => '<li><a href="#" data-note="' + n.path + '">' + n.title + '</a></li>').join('') + '</ul></details>').join('') || '<span class="muted">no notes yet</span>'
+          for (const a of el.querySelectorAll('[data-note]')) a.onclick = (e) => { e.preventDefault(); fetch(omni.url('/note?path=' + encodeURIComponent(a.dataset.note))).then((r) => r.text()).then((t) => { const v = document.getElementById('bm-view'); v.style.display = 'block'; v.textContent = t; v.scrollIntoView() }) }
+        })
         document.getElementById('import').onchange = async (e) => {
           const st = document.getElementById('import-status'); const files = [...e.target.files]; let n = 0, dup = 0; const failed = []
           for (const f of files) {

@@ -96,7 +96,10 @@ via IMU — all from its settings), Stopwatch, System monitor (image sparkline),
 glasses mic → WAV, play/download from the phone), Todoist (open tasks, complete/postpone,
 add from anywhere), Transcribe (live captions via Deepgram, saved sessions with an AI
 title/summary/action items, prep notes, and mid-conversation cues from your notes and past
-sessions — suggested to-dos go to Todoist with a swipe; put who you are in `data/profile.md`).
+sessions — suggested to-dos go to Todoist with a swipe; put who you are in `data/profile.md`;
+imports Conversate TXT exports; `brain-map.mjs` folds sessions into a linked knowledge vault
+with Claude Code headless, browsable on the glasses and quoted by cues — run it nightly with a
+cron/systemd timer).
 
 **The phone app is a companion too.** Its *Apps* tab lists your apps (open on the glasses,
 open their settings) and shows each app's own phone page (`phone` hook) — e.g. the voice

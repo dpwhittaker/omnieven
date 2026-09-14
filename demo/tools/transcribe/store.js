@@ -2,7 +2,7 @@
 // session in <dataDir>/sessions/ so an assistant can read them directly.
 
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** @typedef {{ id: number, started: number, ended: number | null, source: string, location: string, title: string, summary: string, actions: { text: string, due?: string, done?: boolean }[], terms: { term: string, definition: string }[], people: { name: string, role?: string }[], prep: string, transcript: string }} Session */
@@ -19,6 +19,7 @@ export class Store {
         actions TEXT DEFAULT '[]', terms TEXT DEFAULT '[]', people TEXT DEFAULT '[]', prep TEXT DEFAULT '', transcript TEXT DEFAULT '');
       CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(session_id UNINDEXED, text);
     `)
+    this.db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS notes USING fts5(path UNINDEXED, title, text)')
     try { this.db.exec("ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'glasses'") } catch {}
     try { this.db.exec("ALTER TABLE sessions ADD COLUMN location TEXT DEFAULT ''") } catch {}
   }
@@ -104,6 +105,51 @@ export class Store {
         WHERE fts MATCH ? AND s.id != ? ORDER BY bm25(fts) LIMIT ?`).all(q, exclude, limit))
     } catch { return [] }
   }
+  /**
+   * (Re)index the knowledge vault (knowledge/**\/*.md) for recall cues. Cheap; call
+   * whenever a note file changes.
+   */
+  indexNotes() {
+    const root = join(this.dir, 'knowledge')
+    if (!existsSync(root)) return 0
+    /** @type {{ path: string, title: string, text: string }[]} */ const notes = []
+    const walk = (/** @type {string} */ dir) => {
+      for (const f of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, f.name)
+        if (f.isDirectory()) walk(full)
+        else if (f.name.endsWith('.md') && f.name !== 'CLAUDE.md') {
+          const text = readFileSync(full, 'utf8')
+          const title = (text.match(/^#\s+(.+)$/m) || [])[1] || f.name.replace(/\.md$/, '')
+          notes.push({ path: full.slice(root.length + 1), title, text: text.replace(/^---[\s\S]*?---\n/, '') })
+        }
+      }
+    }
+    walk(root)
+    this.db.exec('DELETE FROM notes')
+    const ins = this.db.prepare('INSERT INTO notes (path, title, text) VALUES (?, ?, ?)')
+    for (const n of notes) ins.run(n.path, n.title, n.text)
+    return notes.length
+  }
+  /** Vault notes matching any of the terms. @param {string[]} terms */
+  searchNotes(terms, limit = 3) {
+    const q = terms.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ')
+    if (!q) return []
+    try {
+      return /** @type {{ path: string, title: string, snippet: string }[]} */ (this.db.prepare(
+        `SELECT path, title, snippet(notes, 2, '', '', '…', 32) AS snippet FROM notes WHERE notes MATCH ? ORDER BY bm25(notes) LIMIT ?`).all(q, limit))
+    } catch { return [] }
+  }
+  /** Titles + paths of all vault notes, grouped by folder. */
+  listNotes() {
+    return /** @type {{ path: string, title: string }[]} */ (this.db.prepare('SELECT path, title FROM notes ORDER BY path').all())
+  }
+  /** @param {string} path */
+  readNote(path) {
+    const f = join(this.dir, 'knowledge', path)
+    if (!f.startsWith(join(this.dir, 'knowledge')) || !existsSync(f)) return null
+    return readFileSync(f, 'utf8')
+  }
+
   /** Open action items across all sessions (for reminders). */
   openActions(limit = 20) {
     /** @type {{ session: number, title: string, text: string, due?: string }[]} */ const out = []
