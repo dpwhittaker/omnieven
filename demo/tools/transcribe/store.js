@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** @typedef {{ id: number, started: number, ended: number | null, title: string, summary: string, actions: { text: string, due?: string, done?: boolean }[], terms: { term: string, definition: string }[], people: { name: string, role?: string }[], prep: string, transcript: string }} Session */
+/** @typedef {{ id: number, started: number, ended: number | null, source: string, location: string, title: string, summary: string, actions: { text: string, due?: string, done?: boolean }[], terms: { term: string, definition: string }[], people: { name: string, role?: string }[], prep: string, transcript: string }} Session */
 
 export class Store {
   /** @param {string} dir */
@@ -19,14 +19,16 @@ export class Store {
         actions TEXT DEFAULT '[]', terms TEXT DEFAULT '[]', people TEXT DEFAULT '[]', prep TEXT DEFAULT '', transcript TEXT DEFAULT '');
       CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(session_id UNINDEXED, text);
     `)
+    try { this.db.exec("ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'glasses'") } catch {}
+    try { this.db.exec("ALTER TABLE sessions ADD COLUMN location TEXT DEFAULT ''") } catch {}
   }
   /** @param {any} row @returns {Session} */
   static row(row) {
     return { ...row, actions: JSON.parse(row.actions || '[]'), terms: JSON.parse(row.terms || '[]'), people: JSON.parse(row.people || '[]') }
   }
-  /** @param {{ started: number, prep: string }} s */
+  /** @param {{ started: number, prep: string, source?: string, location?: string }} s */
   create(s) {
-    const r = this.db.prepare('INSERT INTO sessions (started, prep) VALUES (?, ?)').run(s.started, s.prep)
+    const r = this.db.prepare('INSERT INTO sessions (started, prep, source, location) VALUES (?, ?, ?, ?)').run(s.started, s.prep, s.source || 'glasses', s.location || '')
     return Number(r.lastInsertRowid)
   }
   /** @param {number} id @param {Partial<Session>} patch */
@@ -48,7 +50,7 @@ export class Store {
     const date = new Date(s.started).toISOString().slice(0, 16).replace('T', ' ')
     const slug = (s.title || 'session').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
     const md = [
-      `# ${s.title || 'Untitled session'}`, '', `- date: ${date}`, `- session: ${s.id}`, '',
+      `# ${s.title || 'Untitled session'}`, '', `- date: ${date}`, `- session: ${s.id}`, `- source: ${s.source || 'glasses'}`, s.location ? `- location: ${s.location}` : '', '',
       s.prep ? `## Prep notes\n\n${s.prep}\n` : '',
       `## Summary\n\n${s.summary}\n`,
       s.actions.length ? `## Action items\n\n${s.actions.map((a) => `- [ ] ${a.text}${a.due ? ` (${a.due})` : ''}`).join('\n')}\n` : '',

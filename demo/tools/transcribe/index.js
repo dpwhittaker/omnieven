@@ -68,8 +68,8 @@ async function start(ctx) {
   ctx.render()
 }
 
-/** @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx @param {boolean} [summarize] */
-async function stop(ctx, summarize = true) {
+/** @param {import("../../../shared/app.ts").AppContext<State, Mem>} ctx @param {boolean} [keep] */
+async function stop(ctx, keep = true) {
   const m = ctx.mem
   if (m.tick) { ctx.clear(m.tick); m.tick = null }
   try { await ctx.audio(false) } catch {}
@@ -77,19 +77,31 @@ async function stop(ctx, summarize = true) {
   const text = transcript(m)
   const s = store(ctx)
   s.update(m.sessionId, { ended: Date.now(), transcript: text })
-  if (!summarize || words(text) < 5) {
+  if (!keep || words(text) < 5) {
     s.update(m.sessionId, { title: 'Empty session' }); s.finish(m.sessionId)
     m.screen = 'idle'; ctx.render(); return
   }
   m.summarizing = true; m.screen = 'review'; m.review = s.get(m.sessionId); m.page = 0; ctx.render()
+  await summarize(ctx, m.sessionId, text, ctx.state.prep || '')
+  s.finish(m.sessionId)
+  m.review = s.get(m.sessionId); m.summarizing = false; m.page = 0
+  ctx.render()
+}
+
+/**
+ * Title / summary / action items / terms / people for a finished transcript (smart tier).
+ * @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx @param {number} id @param {string} text @param {string} prep
+ */
+async function summarize(ctx, id, text, prep) {
+  const s = store(ctx)
   try {
     const raw = await ask(ctx, {
       model: 'smart', maxTokens: 1200,
       system: `You write concise notes after a conversation. ${profile(ctx) ? `About the user:\n${profile(ctx)}` : ''}\nReply with JSON only.`,
-      prompt: `Transcript (speakers numbered; the user is usually speaker 0):\n\n${text.slice(0, 24000)}\n\n${ctx.state.prep ? `The user's prep notes for this conversation:\n${ctx.state.prep}\n\n` : ''}Return JSON: {"title": "≤8 words", "summary": "≤120 words, plain prose, what was discussed and decided", "action_items": [{"text": "concrete action, ≤12 words", "due": "optional natural-language date"}], "terms": [{"term": "…", "definition": "≤20 words"}], "people": [{"name": "…", "role": "…"}]}. Only include real action items for the user.`,
+      prompt: `Transcript (speakers numbered when known; the user is usually speaker 0):\n\n${text.slice(0, 24000)}\n\n${prep ? `The user's prep notes for this conversation:\n${prep}\n\n` : ''}Return JSON: {"title": "≤8 words", "summary": "≤120 words, plain prose, what was discussed and decided", "action_items": [{"text": "concrete action, ≤12 words", "due": "optional natural-language date"}], "terms": [{"term": "…", "definition": "≤20 words"}], "people": [{"name": "…", "role": "…"}]}. Only include real action items for the user.`,
     })
     /** @type {any} */ const j = parseJson(raw) || {}
-    s.update(m.sessionId, {
+    s.update(id, {
       title: String(j.title || 'Untitled session').slice(0, 80), summary: String(j.summary || ''),
       actions: Array.isArray(j.action_items) ? j.action_items.filter((/** @type {any} */ a) => a && a.text).map((/** @type {any} */ a) => ({ text: String(a.text), due: a.due ? String(a.due) : undefined })) : [],
       terms: Array.isArray(j.terms) ? j.terms.filter((/** @type {any} */ t) => t && t.term).map((/** @type {any} */ t) => ({ term: String(t.term), definition: String(t.definition || '') })) : [],
@@ -97,11 +109,60 @@ async function stop(ctx, summarize = true) {
     })
   } catch (err) {
     ctx.log(`summary failed: ${err instanceof Error ? err.message : err}`)
-    s.update(m.sessionId, { title: `Session ${new Date(m.startedAt).toLocaleString(ctx.locale, { timeZone: ctx.tz, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, summary: '(summary failed — transcript saved)' })
+    const started = s.get(id)?.started ?? Date.now()
+    s.update(id, { title: `Session ${new Date(started).toLocaleString(ctx.locale, { timeZone: ctx.tz, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, summary: '(summary failed — transcript saved)' })
   }
-  s.finish(m.sessionId)
-  m.review = s.get(m.sessionId); m.summarizing = false; m.page = 0
-  ctx.render()
+}
+
+/**
+ * Import a Conversate export (Even app → conversation → Share → TXT):
+ *   line 1 "<title> - Transcriptions", line 2 "07:25 PM 09/01/2026", line 3 location,
+ *   then "[HH:MM:SS]" + text blocks. No speaker labels.
+ * @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx @param {string} text @param {string} [filename]
+ */
+async function importConversate(ctx, text, filename = '') {
+  const lines = text.replace(/\r/g, '').split('\n')
+  const titleLine = (lines[0] || '').trim()
+  const title = titleLine.replace(/\s*-\s*Transcriptions?\s*$/i, '').trim() || filename.replace(/\.txt$/i, '').replace(/_/g, ' ') || 'Imported conversation'
+  const dm = (lines[1] || '').match(/(\d{1,2}):(\d{2})\s*(AM|PM)?\s+(\d{2})\/(\d{2})\/(\d{4})/i)
+  const location = /^[A-Za-z].*,/.test(lines[2] || '') ? lines[2].trim() : ''
+  /** @type {{ t: number, text: string }[]} */ const segs = []
+  let cur = -1
+  for (const raw of lines.slice(dm ? 3 : 0)) {
+    const l = raw.trim()
+    const ts = l.match(/^\[(\d{2}):(\d{2}):(\d{2})\]$/)
+    if (ts) { cur = (+ts[1] * 3600 + +ts[2] * 60 + +ts[3]) * 1000; continue }
+    if (!l || /^Generated by A/i.test(l) || cur < 0) continue
+    segs.push({ t: cur, text: l })
+  }
+  if (!segs.length) throw new Error('no "[HH:MM:SS]" transcript lines found')
+  // absolute start: the header date in the phone's time zone; the first timestamp gives the seconds
+  let started = Date.now()
+  if (dm) {
+    const y = +dm[6], mo = +dm[4], d = +dm[5]
+    const first = segs[0].t
+    // build the local wall-clock instant for that zone
+    const guess = Date.UTC(y, mo - 1, d, Math.floor(first / 3600000), Math.floor((first % 3600000) / 60000), Math.floor((first % 60000) / 1000))
+    const offset = tzOffsetMs(ctx.tz, guess)
+    started = guess - offset
+  }
+  const base = segs[0].t
+  const transcript = segs.map((x) => x.text).join(' ')
+  const s = store(ctx)
+  const id = s.create({ started, prep: '', source: 'conversate', location })
+  s.update(id, { ended: started + (segs[segs.length - 1].t - base), transcript, title })
+  await summarize(ctx, id, transcript, '')
+  const after = s.get(id)
+  if (after && (!after.title || after.title === 'Untitled session')) s.update(id, { title })
+  s.finish(id)
+  ctx.log(`imported conversate "${title}" (${segs.length} lines)`)
+  return s.get(id)
+}
+/** Offset of an IANA zone at an instant, in ms (positive east of UTC). @param {string} tz @param {number} atUtcMs */
+function tzOffsetMs(tz, atUtcMs) {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(atUtcMs))
+  const g = (/** @type {string} */ t) => Number(p.find((x) => x.type === t)?.value)
+  return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second')) - atUtcMs
 }
 
 // ── cues ─────────────────────────────────────────────────────────────
@@ -290,6 +351,14 @@ export default {
     if (req.path === '/prep' && req.method === 'POST') { const b = /** @type {any} */ (req.body); ctx.state.prep = String(b?.prep ?? '').slice(0, 4000); ctx.save(); ctx.render(); return { ok: true } }
     if (req.path === '/todo' && req.method === 'POST') { const b = /** @type {any} */ (req.body); if (b?.text) void addTodo(ctx, { text: String(b.text), due: b.due }); return { ok: true } }
     if (req.path === '/live') return { screen: ctx.mem.screen, text: transcript(ctx.mem), interim: ctx.mem.interim, cue: ctx.mem.cue }
+    if (req.path === '/import' && req.method === 'POST') {
+      const b = /** @type {any} */ (req.body)
+      const text = typeof b === 'string' ? b : String(b?.text ?? '')
+      const name = req.query.name || (typeof b === 'object' && b ? String(b.name || '') : '')
+      if (!text.trim()) return { status: 400, json: { error: 'text required (raw body or {"name","text"})' } }
+      return importConversate(ctx, text, name).then((x) => ({ ok: true, session: x && { id: x.id, title: x.title, started: x.started, summary: x.summary, actions: x.actions } }))
+        .catch((err) => ({ status: 400, json: { error: err instanceof Error ? err.message : String(err) } }))
+    }
   },
 
   phone(ctx) {
@@ -300,15 +369,24 @@ export default {
       <p>${esc(x.summary)}</p>
       ${x.actions.length ? `<ul class="rows">${x.actions.map((a) => `<li><span>${esc(a.text)}${a.due ? ` <small class="muted">· ${esc(a.due)}</small>` : ''}</span><button data-todo="${esc(a.text)}" data-due="${esc(a.due || '')}">→ Todoist</button></li>`).join('')}</ul>` : ''}
       ${x.terms.length ? `<p class="muted">${x.terms.map((t) => `<b>${esc(t.term)}</b> — ${esc(t.definition)}`).join('<br>')}</p>` : ''}
-      <details><summary class="muted">Transcript</summary><pre>${esc(x.transcript)}</pre></details></details>`).join('')
+      <details><summary class="muted">Transcript${x.source && x.source !== 'glasses' ? ` (${esc(x.source)})` : ''}</summary><pre>${esc(x.transcript)}</pre></details></details>`).join('')
     return `<h1>Transcribe <small class="muted">${m.screen === 'live' ? '● recording' : `${sessions.length} sessions`}</small></h1>
       <div class="card"><b>Prep notes for the next conversation</b>
         <p class="muted">Who you're meeting, the agenda, numbers and questions. Cues draw on these.</p>
         <textarea id="prep" rows="6" style="width:100%">${esc(ctx.state.prep)}</textarea>
         <div class="row" style="margin-top:8px"><button id="save-prep" class="primary">Save prep notes</button>${m.screen === 'idle' ? '<button id="start">Start on the glasses</button>' : m.screen === 'live' ? '<button id="stop">Stop</button>' : ''}</div>
       </div>
+      <div class="card"><b>Import from Conversate</b>
+        <p class="muted">In the Even app open a conversation → Share → TXT, then pick the file(s) here. Each becomes a session with a summary, searchable for cues.</p>
+        <input type="file" id="import" accept=".txt,text/plain" multiple /> <span id="import-status" class="muted"></span>
+      </div>
       ${cards || '<p class="muted">No sessions yet — tap the glasses to start one.</p>'}
       <script>
+        document.getElementById('import').onchange = async (e) => {
+          const st = document.getElementById('import-status'); const files = [...e.target.files]; let n = 0
+          for (const f of files) { st.textContent = 'importing ' + f.name + '…'; try { await omni.api('/import', { method: 'POST', body: { name: f.name, text: await f.text() } }); n++ } catch (err) { st.textContent = 'failed: ' + f.name + ' — ' + err; return } }
+          st.textContent = 'imported ' + n; setTimeout(omni.reload, 800)
+        }
         document.getElementById('save-prep').onclick = () => omni.api('/prep', { method: 'POST', body: { prep: document.getElementById('prep').value } }).then(() => omni.reload())
         const st = document.getElementById('start'); if (st) st.onclick = () => omni.api('/message', { method: 'POST', body: { start: true } }).then(() => omni.reload())
         const sp = document.getElementById('stop'); if (sp) sp.onclick = () => omni.api('/message', { method: 'POST', body: { stop: true } }).then(() => setTimeout(omni.reload, 4000))
