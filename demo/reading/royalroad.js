@@ -1,7 +1,7 @@
 // RoyalRoad — read your library on the glasses, position shared with the web
 // reader (royalroad service: https://github.com/lettucegoblin/royalroad).
 //   library → tap a fiction → resumes where you left off (web or glasses)
-//   tap / swipe down: next page · swipe up: previous page · double-tap: back
+//   tap: next page · swipe down / up: scroll by the 'Scroll step' setting (page … 1 line) · double-tap: back
 //   menu: Next chapter · Previous chapter · Chapters… · Library
 //   settings: lines per page, reading-area width, horizontal/vertical placement of
 //   the reading area (e.g. a narrow column on the right, or one line at the bottom),
@@ -10,10 +10,10 @@
 
 /** @typedef {{ id: number, title: string, author: string, chapters: number, downloaded: number, position: { chapter_id: number, paragraph: number, ord: number, title: string } | null }} Fiction */
 /** @typedef {{ id: number, fictionId: number, ord: number, total: number, title: string, paragraphs: string[], prev: number | null, next: number | null }} Chapter */
-/** @typedef {{ text: string, para: number }} Page */
-/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean }} State */
+/** @typedef {{ text: string, para: number }} Line */
+/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean, step: 'page'|'half'|'3'|'2'|'1' }} State */
 /** @typedef {{ screen: 'library'|'reader'|'chapters', fictions: Fiction[], fiction: Fiction | null, chapter: Chapter | null,
- *   pages: Page[], page: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
+ *   lines: Line[], top: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
  *   chapterWindow: number, saveTimer: any }} Mem */
 
 const W = 576, H = 288, HEADER = 34, PAD = 4, LINE = 27
@@ -52,30 +52,53 @@ async function api(ctx, path, init = {}) {
 }
 
 /**
- * Paginate paragraphs into screen pages, remembering which paragraph each
- * page starts on so the position can be saved by paragraph.
+ * Wrap the chapter into screen lines, each tagged with the paragraph it belongs
+ * to (so the position can be saved by paragraph). A blank line separates
+ * paragraphs; it carries the index of the paragraph that follows it.
  * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {string[]} paragraphs
  */
-function paginate(ctx, paragraphs) {
-  const { lines: maxLines, textWidth } = layout(ctx)
-  /** @type {Page[]} */ const pages = []
-  /** @type {string[]} */ let lines = []
-  let para = 0, startPara = 0
-  const flush = () => { if (lines.length) { pages.push({ text: lines.join('\n'), para: startPara }); lines = [] } }
-  for (para = 0; para < paragraphs.length; para++) {
-    const wrapped = ctx.ui.wrap(paragraphs[para], textWidth)
-    let i = 0
-    while (i < wrapped.length) {
-      if (lines.length >= maxLines) { flush(); startPara = para }
-      if (!lines.length) startPara = para
-      const room = maxLines - lines.length
-      lines.push(...wrapped.slice(i, i + room))
-      i += room
-    }
-    if (lines.length && lines.length < maxLines) lines.push('')   // paragraph gap
-  }
-  flush()
-  return pages.length ? pages : [{ text: '(empty chapter)', para: 0 }]
+function flow(ctx, paragraphs) {
+  const { textWidth } = layout(ctx)
+  /** @type {Line[]} */ const lines = []
+  paragraphs.forEach((p, para) => {
+    if (lines.length) lines.push({ text: '', para })
+    for (const text of ctx.ui.wrap(p, textWidth)) lines.push({ text, para })
+  })
+  return lines.length ? lines : [{ text: '(empty chapter)', para: 0 }]
+}
+
+/** Lines the reading box shows at once. @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
+const pageLines = (ctx) => layout(ctx).lines
+/** Highest valid top line (the last page is filled from the end). @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
+const maxTop = (ctx) => Math.max(0, ctx.mem.lines.length - pageLines(ctx))
+/** How many lines a swipe moves, from the 'step' setting. @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
+function stepLines(ctx) {
+  const n = pageLines(ctx), st = ctx.state.step
+  return st === 'page' ? n : st === 'half' ? Math.max(1, Math.floor(n / 2)) : Math.min(n, Number(st) || 1)
+}
+/**
+ * Top line for a paragraph: the first line of it, else the last line before it.
+ * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {number} para
+ */
+function topForParagraph(ctx, para) {
+  const m = ctx.mem
+  if (para >= Number.MAX_SAFE_INTEGER) return maxTop(ctx)
+  let i = m.lines.findIndex((l) => l.para === para && l.text !== '')
+  if (i < 0) i = m.lines.findLastIndex((l) => l.para <= para)
+  return Math.min(Math.max(0, i), maxTop(ctx))
+}
+/**
+ * Move the window by `delta` lines (clamped). Whole-page moves skip a blank
+ * separator that would otherwise waste the first line.
+ * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {number} delta
+ */
+function scroll(ctx, delta) {
+  const m = ctx.mem
+  let top = Math.min(maxTop(ctx), Math.max(0, m.top + delta))
+  if (Math.abs(delta) >= pageLines(ctx) && top < maxTop(ctx) && m.lines[top]?.text === '') top++
+  if (top === m.top) return false
+  m.top = top
+  return true
 }
 
 /** @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {number} chapterId */
@@ -96,8 +119,8 @@ async function openChapter(ctx, chapterId, paragraph = 0) {
   try {
     const ch = await loadChapter(ctx, chapterId)
     m.chapter = ch
-    m.pages = paginate(ctx, ch.paragraphs)
-    m.page = Math.max(0, m.pages.findIndex((p, i) => p.para <= paragraph && (m.pages[i + 1]?.para ?? Infinity) > paragraph))
+    m.lines = flow(ctx, ch.paragraphs)
+    m.top = topForParagraph(ctx, paragraph)
     m.screen = 'reader'
     if (ch.next) void loadChapter(ctx, ch.next).catch(() => {})   // prefetch
   } catch (err) { m.error = err instanceof Error ? err.message : String(err) }
@@ -109,7 +132,7 @@ async function openChapter(ctx, chapterId, paragraph = 0) {
 function savePosition(ctx) {
   const m = ctx.mem
   if (!m.fiction || !m.chapter) return
-  const chapterId = m.chapter.id, paragraph = m.pages[m.page]?.para ?? 0
+  const chapterId = m.chapter.id, paragraph = m.lines[m.top]?.para ?? 0
   clearTimeout(m.saveTimer)
   m.saveTimer = setTimeout(() => {
     api(ctx, `/fictions/${m.fiction?.id}/position`, { method: 'PUT', body: JSON.stringify({ chapterId, paragraph, device: 'glasses' }) }).catch((e) => ctx.log(`save position: ${e.message}`))
@@ -145,21 +168,19 @@ const SETTINGS = [
   { key: 'width', label: 'Reading width', options: [[576, 'full'], [480, 'wide'], [384, 'two thirds'], [288, 'half'], [192, 'third']].map(([v, l]) => ({ value: v, label: `${l} (${v}px)` })) },
   { key: 'halign', label: 'Horizontal position', options: ['left', 'center', 'right'].map((v) => ({ value: v, label: v })) },
   { key: 'valign', label: 'Vertical position', options: ['top', 'center', 'bottom'].map((v) => ({ value: v, label: v })) },
+  { key: 'step', label: 'Scroll step (swipes)', options: [['page', 'a page'], ['half', 'half a page'], ['3', '3 lines'], ['2', '2 lines'], ['1', '1 line']].map(([v, l]) => ({ value: v, label: l })) },
   { key: 'header', label: 'Header line', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
   { key: 'brightness', label: 'Text brightness', options: [1, 2, 3, 4].map((v) => ({ value: v, label: ['', 'dim', 'medium', 'bright', 'brightest'][v] })) },
 ]
 
-/** Re-paginate the open chapter after a layout change, staying on the same paragraph.
+/** Re-flow the open chapter after a layout change, staying on the same paragraph.
  * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
 function reflow(ctx) {
   const m = ctx.mem
   if (!m.chapter) return
-  const para = m.pages[m.page]?.para ?? 0
-  m.pages = paginate(ctx, m.chapter.paragraphs)
-  // first page that starts on that paragraph, else the page containing it
-  let i = m.pages.findIndex((p) => p.para === para)
-  if (i < 0) i = m.pages.findLastIndex((p) => p.para <= para)
-  m.page = Math.max(0, i)
+  const para = m.lines[m.top]?.para ?? 0
+  m.lines = flow(ctx, m.chapter.paragraphs)
+  m.top = topForParagraph(ctx, para)
 }
 
 /** @type {import('../../shared/app.ts').OmniApp<State, Mem>} */
@@ -175,10 +196,12 @@ export default {
     ctx.state.halign ??= 'left'
     ctx.state.valign ??= 'top'
     ctx.state.header ??= true
+    ctx.state.step ??= 'page'
     ctx.mem.screen = 'library'
     ctx.mem.fictions ??= []
     ctx.mem.cache ??= {}
-    ctx.mem.pages ??= []
+    ctx.mem.lines ??= []
+    ctx.mem.top ??= 0
     ctx.mem.chapterList ??= []
     ctx.mem.loading = ''; ctx.mem.error = ''
     ctx.mem.chapterWindow = 0
@@ -205,14 +228,15 @@ export default {
       }
     }
     if (m.screen === 'reader' && m.chapter && m.fiction) {
-      const pg = m.pages[m.page]
-      const last = m.page >= m.pages.length - 1
-      const hint = last ? (m.chapter.next ? 'tap: next chapter' : 'the end (so far)') : `${m.page + 1}/${m.pages.length}`
       const box = layout(ctx)
+      const end = Math.min(m.lines.length, m.top + box.lines)
+      const last = m.top >= maxTop(ctx)
+      const hint = last ? (m.chapter.next ? 'tap: next chapter' : 'the end (so far)') : `${Math.round((end / m.lines.length) * 100)}%`
+      const text = m.lines.slice(m.top, end).map((l) => l.text).join('\n')
       return {
         containers: [
           ...(s.header ? [header(`${ctx.ui.fit(m.chapter.title, 330)}  ·  ch ${m.chapter.ord + 1}/${m.chapter.total}  ·  ${hint}`)] : []),
-          { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness, text: pg?.text ?? '' },
+          { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness, text },
         ],
         menu: [{ id: 'next', label: 'Next chapter' }, { id: 'prev', label: 'Previous chapter' }, { id: 'chapters', label: 'Chapters…' }, { id: 'library', label: 'Library' }],
       }
@@ -249,12 +273,13 @@ export default {
     if (!m.chapter) return
     if (ev.type === 'double') { m.screen = 'library'; void loadLibrary(ctx); return true }
     if (ev.type === 'tap' || ev.type === 'down') {
-      if (m.page < m.pages.length - 1) { m.page++; savePosition(ctx); ctx.render() }
+      // tap = a page, swipe = the configured step; past the end → next chapter
+      if (scroll(ctx, ev.type === 'tap' ? pageLines(ctx) : stepLines(ctx))) { savePosition(ctx); ctx.render() }
       else if (m.chapter.next) void openChapter(ctx, m.chapter.next, 0).then(() => savePosition(ctx))
       return true
     }
     if (ev.type === 'up') {
-      if (m.page > 0) { m.page--; savePosition(ctx); ctx.render() }
+      if (scroll(ctx, -stepLines(ctx))) { savePosition(ctx); ctx.render() }
       else if (m.chapter.prev) void openChapter(ctx, m.chapter.prev, Number.MAX_SAFE_INTEGER).then(() => savePosition(ctx))
       return true
     }
