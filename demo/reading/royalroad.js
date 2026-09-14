@@ -3,17 +3,35 @@
 //   library → tap a fiction → resumes where you left off (web or glasses)
 //   tap / swipe down: next page · swipe up: previous page · double-tap: back
 //   menu: Next chapter · Previous chapter · Chapters… · Library
+//   settings: lines per page, reading-area width, horizontal/vertical placement of
+//   the reading area (e.g. a narrow column on the right, or one line at the bottom),
+//   header on/off, brightness
 // Needs ROYALROAD_URL and ROYALROAD_TOKEN in Omni's .env.
 
 /** @typedef {{ id: number, title: string, author: string, chapters: number, downloaded: number, position: { chapter_id: number, paragraph: number, ord: number, title: string } | null }} Fiction */
 /** @typedef {{ id: number, fictionId: number, ord: number, total: number, title: string, paragraphs: string[], prev: number | null, next: number | null }} Chapter */
 /** @typedef {{ text: string, para: number }} Page */
-/** @typedef {{ lines: number, brightness: number }} State */
+/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean }} State */
 /** @typedef {{ screen: 'library'|'reader'|'chapters', fictions: Fiction[], fiction: Fiction | null, chapter: Chapter | null,
  *   pages: Page[], page: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
  *   chapterWindow: number, saveTimer: any }} Mem */
 
-const W = 576, HEADER = 34, PAD = 4
+const W = 576, H = 288, HEADER = 34, PAD = 4, LINE = 27
+
+/**
+ * Where the reading area sits on the screen, from the settings: width and
+ * alignment place a `lines`-tall box; the header (if shown) stays on top.
+ * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx
+ */
+function layout(ctx) {
+  const s = ctx.state
+  const top = s.header ? HEADER : 0
+  const lines = Math.min(s.lines, Math.floor((H - top - 2 * PAD) / LINE))
+  const w = Math.min(W, s.width), h = lines * LINE + 2 * PAD
+  const x = s.halign === 'left' ? 0 : s.halign === 'right' ? W - w : Math.round((W - w) / 2)
+  const y = s.valign === 'top' ? top : s.valign === 'bottom' ? H - h : top + Math.round((H - top - h) / 2)
+  return { x, y, w, h, lines, top, textWidth: w - 2 * PAD - 8 }
+}
 
 /** @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
 function cfg(ctx) {
@@ -39,13 +57,13 @@ async function api(ctx, path, init = {}) {
  * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {string[]} paragraphs
  */
 function paginate(ctx, paragraphs) {
-  const maxLines = ctx.state.lines
+  const { lines: maxLines, textWidth } = layout(ctx)
   /** @type {Page[]} */ const pages = []
   /** @type {string[]} */ let lines = []
   let para = 0, startPara = 0
   const flush = () => { if (lines.length) { pages.push({ text: lines.join('\n'), para: startPara }); lines = [] } }
   for (para = 0; para < paragraphs.length; para++) {
-    const wrapped = ctx.ui.wrap(paragraphs[para], W - 2 * PAD - 8)
+    const wrapped = ctx.ui.wrap(paragraphs[para], textWidth)
     let i = 0
     while (i < wrapped.length) {
       if (lines.length >= maxLines) { flush(); startPara = para }
@@ -121,18 +139,42 @@ async function openFiction(ctx, f) {
   } catch (err) { m.error = err instanceof Error ? err.message : String(err); m.loading = ''; ctx.render() }
 }
 
+/** @type {{ key: keyof State, label: string, options: { value: any, label: string }[] }[]} */
+const SETTINGS = [
+  { key: 'lines', label: 'Lines per page', options: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => ({ value: v, label: `${v}` })) },
+  { key: 'width', label: 'Reading width', options: [[576, 'full'], [480, 'wide'], [384, 'two thirds'], [288, 'half'], [192, 'third']].map(([v, l]) => ({ value: v, label: `${l} (${v}px)` })) },
+  { key: 'halign', label: 'Horizontal position', options: ['left', 'center', 'right'].map((v) => ({ value: v, label: v })) },
+  { key: 'valign', label: 'Vertical position', options: ['top', 'center', 'bottom'].map((v) => ({ value: v, label: v })) },
+  { key: 'header', label: 'Header line', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
+  { key: 'brightness', label: 'Text brightness', options: [1, 2, 3, 4].map((v) => ({ value: v, label: ['', 'dim', 'medium', 'bright', 'brightest'][v] })) },
+]
+
+/** Re-paginate the open chapter after a layout change, staying on the same paragraph.
+ * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
+function reflow(ctx) {
+  const m = ctx.mem
+  if (!m.chapter) return
+  const para = m.pages[m.page]?.para ?? 0
+  m.pages = paginate(ctx, m.chapter.paragraphs)
+  // first page that starts on that paragraph, else the page containing it
+  let i = m.pages.findIndex((p) => p.para === para)
+  if (i < 0) i = m.pages.findLastIndex((p) => p.para <= para)
+  m.page = Math.max(0, i)
+}
+
 /** @type {import('../../shared/app.ts').OmniApp<State, Mem>} */
 export default {
   title: 'RoyalRoad',
   order: 1,
-  settings: [
-    { key: 'lines', label: 'Lines per page', options: [6, 7, 8, 9].map((v) => ({ value: v, label: `${v}` })) },
-    { key: 'brightness', label: 'Text brightness', options: [1, 2, 3, 4].map((v) => ({ value: v, label: ['', 'dim', 'medium', 'bright', 'brightest'][v] })) },
-  ],
+  settings: SETTINGS,
 
   init(ctx) {
     ctx.state.lines ??= 8
     ctx.state.brightness ??= 4
+    ctx.state.width ??= W
+    ctx.state.halign ??= 'left'
+    ctx.state.valign ??= 'top'
+    ctx.state.header ??= true
     ctx.mem.screen = 'library'
     ctx.mem.fictions ??= []
     ctx.mem.cache ??= {}
@@ -143,7 +185,8 @@ export default {
   },
   onOpen(ctx) { if (ctx.mem.screen === 'library') void loadLibrary(ctx) },
   onSettingsChange(ctx, key) {
-    if (key === 'lines' && ctx.mem.chapter) { const para = ctx.mem.pages[ctx.mem.page]?.para ?? 0; ctx.mem.pages = paginate(ctx, ctx.mem.chapter.paragraphs); ctx.mem.page = Math.max(0, ctx.mem.pages.findIndex((p, i) => p.para <= para && (ctx.mem.pages[i + 1]?.para ?? Infinity) > para)) }
+    // anything that changes the box re-flows the chapter, keeping the current paragraph
+    if (['lines', 'width', 'header'].includes(key)) reflow(ctx)
   },
 
   render(ctx) {
@@ -165,10 +208,11 @@ export default {
       const pg = m.pages[m.page]
       const last = m.page >= m.pages.length - 1
       const hint = last ? (m.chapter.next ? 'tap: next chapter' : 'the end (so far)') : `${m.page + 1}/${m.pages.length}`
+      const box = layout(ctx)
       return {
         containers: [
-          header(`${ctx.ui.fit(m.chapter.title, 330)}  ·  ch ${m.chapter.ord + 1}/${m.chapter.total}  ·  ${hint}`),
-          { type: 'text', name: 'body', x: 0, y: HEADER, w: W, h: 288 - HEADER, padding: PAD, capture: true, textColor: s.brightness, text: pg?.text ?? '' },
+          ...(s.header ? [header(`${ctx.ui.fit(m.chapter.title, 330)}  ·  ch ${m.chapter.ord + 1}/${m.chapter.total}  ·  ${hint}`)] : []),
+          { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness, text: pg?.text ?? '' },
         ],
         menu: [{ id: 'next', label: 'Next chapter' }, { id: 'prev', label: 'Previous chapter' }, { id: 'chapters', label: 'Chapters…' }, { id: 'library', label: 'Library' }],
       }
@@ -236,6 +280,10 @@ export default {
 
   // From the phone page / API: {"open": <fictionId>} jumps into a fiction.
   onMessage(ctx, msg) {
+    // the same keys as the settings schema, e.g. {"lines":1,"valign":"bottom"}
+    let changed = false
+    for (const st of SETTINGS) if (msg[st.key] !== undefined && st.options.some((o) => o.value === msg[st.key])) { ctx.state[st.key] = msg[st.key]; changed = true }
+    if (changed) { ctx.save(); reflow(ctx); ctx.render() }
     if (msg.open) { const f = ctx.mem.fictions.find((x) => x.id === Number(msg.open)); if (f) { ctx.open(); void openFiction(ctx, f) } }
     return { screen: ctx.mem.screen, fiction: ctx.mem.fiction?.id ?? null, chapter: ctx.mem.chapter?.id ?? null }
   },
