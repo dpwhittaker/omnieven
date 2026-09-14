@@ -22,7 +22,7 @@ export async function ask(host, req) {
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!r.ok) throw new Error(`Anthropic ${r.status}: ${(await r.text()).slice(0, 200)}`)
-    const j = await r.json()
+    /** @type {any} */ const j = await r.json()
     return (j.content || []).map((/** @type {any} */ c) => c.text || '').join('')
   }
   return new Promise((resolve, reject) => {

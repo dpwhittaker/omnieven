@@ -70,10 +70,10 @@ export class Store {
     const q = terms.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ')
     if (!q) return []
     try {
-      return this.db.prepare(`
+      return /** @type {any[]} */ (this.db.prepare(`
         SELECT s.id, s.title, s.started, snippet(fts, 1, '', '', '…', 28) AS snippet
         FROM fts JOIN sessions s ON s.id = fts.session_id
-        WHERE fts MATCH ? AND s.id != ? ORDER BY bm25(fts) LIMIT ?`).all(q, exclude, limit)
+        WHERE fts MATCH ? AND s.id != ? ORDER BY bm25(fts) LIMIT ?`).all(q, exclude, limit))
     } catch { return [] }
   }
   /** Open action items across all sessions (for reminders). */

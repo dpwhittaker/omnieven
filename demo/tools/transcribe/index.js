@@ -22,7 +22,7 @@ import { Store } from './store.js'
 /** @typedef {{ screen: 'idle'|'live'|'review'|'sessions', store: Store | null, stream: ReturnType<typeof openStream> | null, sessionId: number,
  *   finals: { t: number, speaker: number | null, text: string }[], interim: string, startedAt: number, error: string, status: string,
  *   cue: Cue | null, cueBusy: boolean, lastCueAt: number, lastCueWords: number, tick: any, keepTick: any,
- *   review: import('./store.js').Session | null, page: number, sessions: import('./store.js').Session[], summarizing: boolean }} Mem */
+ *   review: import('./store.js').Session | null, page: number, sessions: import('./store.js').Session[], summarizing: boolean, cueHistory?: string[] }} Mem */
 
 const W = 576, H = 288, HEADER = 36, PAD = 4, LINE = 27
 const CUE_EVERY_MS = 12_000, CUE_MIN_WORDS = 12, CUE_TTL_MS = 18_000, CUE_LINES = 2
@@ -88,12 +88,12 @@ async function stop(ctx, summarize = true) {
       system: `You write concise notes after a conversation. ${profile(ctx) ? `About the user:\n${profile(ctx)}` : ''}\nReply with JSON only.`,
       prompt: `Transcript (speakers numbered; the user is usually speaker 0):\n\n${text.slice(0, 24000)}\n\n${ctx.state.prep ? `The user's prep notes for this conversation:\n${ctx.state.prep}\n\n` : ''}Return JSON: {"title": "≤8 words", "summary": "≤120 words, plain prose, what was discussed and decided", "action_items": [{"text": "concrete action, ≤12 words", "due": "optional natural-language date"}], "terms": [{"term": "…", "definition": "≤20 words"}], "people": [{"name": "…", "role": "…"}]}. Only include real action items for the user.`,
     })
-    const j = parseJson(raw) || {}
+    /** @type {any} */ const j = parseJson(raw) || {}
     s.update(m.sessionId, {
       title: String(j.title || 'Untitled session').slice(0, 80), summary: String(j.summary || ''),
-      actions: Array.isArray(j.action_items) ? j.action_items.filter((a) => a && a.text).map((a) => ({ text: String(a.text), due: a.due ? String(a.due) : undefined })) : [],
-      terms: Array.isArray(j.terms) ? j.terms.filter((t) => t && t.term).map((t) => ({ term: String(t.term), definition: String(t.definition || '') })) : [],
-      people: Array.isArray(j.people) ? j.people.filter((p) => p && p.name).map((p) => ({ name: String(p.name), role: p.role ? String(p.role) : undefined })) : [],
+      actions: Array.isArray(j.action_items) ? j.action_items.filter((/** @type {any} */ a) => a && a.text).map((/** @type {any} */ a) => ({ text: String(a.text), due: a.due ? String(a.due) : undefined })) : [],
+      terms: Array.isArray(j.terms) ? j.terms.filter((/** @type {any} */ t) => t && t.term).map((/** @type {any} */ t) => ({ term: String(t.term), definition: String(t.definition || '') })) : [],
+      people: Array.isArray(j.people) ? j.people.filter((/** @type {any} */ p) => p && p.name).map((/** @type {any} */ p) => ({ name: String(p.name), role: p.role ? String(p.role) : undefined })) : [],
     })
   } catch (err) {
     ctx.log(`summary failed: ${err instanceof Error ? err.message : err}`)
