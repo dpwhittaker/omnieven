@@ -40,6 +40,8 @@ export class Connection extends EventEmitter {
   /** latest requested view while a render is in flight */
   private wantView: View | null = null
   private rendering = false
+  /** when the in-flight render started (0 = idle); used for input debouncing */
+  busySince = 0
 
   readonly ws: WebSocket
   readonly remote: string
@@ -84,9 +86,10 @@ export class Connection extends EventEmitter {
     this.wantView = view
     if (this.rendering) return this.queue
     this.rendering = true
+    this.busySince = Date.now()
     this.queue = this.queue.then(() => this.drain()).catch((err: Error) => {
       log('error', `conn ${this.id} render: ${err.message}`)
-    }).finally(() => { this.rendering = false })
+    }).finally(() => { this.rendering = false; this.busySince = 0 })
     return this.queue
   }
 

@@ -7,6 +7,7 @@ types in [`shared/config.ts`](../shared/config.ts).
 ```json
 {
   "menu": { "apps": "none", "pinned": [], "settings": false },
+  "input": { "repeatMs": 150, "waitForRender": true, "maxWaitMs": 2000 },
   "gestures": {
     "root":   { "double": "exit", "longpress": "blank" },
     "global": { "tap>longpress": "config" },
@@ -19,6 +20,13 @@ types in [`shared/config.ts`](../shared/config.ts).
 to list (`none` — just the app's items and Home; `folder` — apps in the same folder;
 `all` — everything, up to the 10-item limit), `pinned` = app ids always listed, `settings` =
 also show the global Settings item. Changeable on the glasses (Settings → last two rows).
+
+**`input`** debounces gestures so a slow round trip doesn't turn one intent into several: a
+gesture that repeats the previous one (same type; same row for list picks) is dropped when it
+arrives within `repeatMs`, or — with `waitForRender` — while the screen update the previous
+one caused is still being drawn on the glasses (a page rebuild over BLE can take a moment),
+never for longer than `maxWaitMs`. A *different* gesture always goes through. Dropped
+events appear on `GET /api/events` with `dropped: true` and in the log.
 
 | Scope | Applies |
 |---|---|

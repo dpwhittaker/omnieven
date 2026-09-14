@@ -36,8 +36,26 @@ export interface MenuConfig {
   settings: boolean
 }
 
+/**
+ * Input debouncing. The round trip glasses → server → glasses can take a
+ * noticeable moment (BLE page rebuilds especially), and a tap that seems to do
+ * nothing tends to get repeated.
+ */
+export interface InputConfig {
+  /** drop a gesture that repeats the previous one within this many ms (0 = off) */
+  repeatMs: number
+  /**
+   * drop a gesture that repeats the previous one while the screen update that
+   * previous one caused is still being drawn on the glasses
+   */
+  waitForRender: boolean
+  /** …but never hold input back longer than this (ms) if a render is stuck */
+  maxWaitMs: number
+}
+
 export interface OmniConfig {
   menu: MenuConfig
+  input: InputConfig
   gestures: {
     /** home list, blank screen and API-pushed views — not inside apps */
     root: GestureBindings
@@ -52,6 +70,7 @@ export const GESTURE_WINDOW_MS = 1500
 
 export const DEFAULT_CONFIG: OmniConfig = {
   menu: { apps: 'none', pinned: [], settings: false },
+  input: { repeatMs: 150, waitForRender: true, maxWaitMs: 2000 },
   gestures: {
     root: { double: 'exit', longpress: 'blank' },
     global: { 'tap>longpress': 'config' },

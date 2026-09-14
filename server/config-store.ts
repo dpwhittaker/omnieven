@@ -1,7 +1,7 @@
 // Persisted shell configuration (data/config.json) with defaults merged in.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_CONFIG, type Action, type GestureBindings, type MenuConfig, type OmniConfig } from '../shared/config.ts'
+import { DEFAULT_CONFIG, type Action, type GestureBindings, type InputConfig, type MenuConfig, type OmniConfig } from '../shared/config.ts'
 import { DATA_DIR } from './config.ts'
 import { log } from './log.ts'
 
@@ -25,6 +25,16 @@ function cleanMenu(m: unknown, base: MenuConfig): MenuConfig {
   }
 }
 
+function cleanInput(i: unknown, base: InputConfig): InputConfig {
+  const o = (i && typeof i === 'object' ? i : {}) as Partial<InputConfig>
+  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : d)
+  return {
+    repeatMs: num(o.repeatMs, base.repeatMs),
+    waitForRender: typeof o.waitForRender === 'boolean' ? o.waitForRender : base.waitForRender,
+    maxWaitMs: num(o.maxWaitMs, base.maxWaitMs),
+  }
+}
+
 export function loadConfig(): OmniConfig {
   let saved: Partial<OmniConfig> = {}
   if (existsSync(FILE)) {
@@ -33,6 +43,7 @@ export function loadConfig(): OmniConfig {
   const g = saved.gestures || ({} as Partial<OmniConfig['gestures']>)
   return {
     menu: cleanMenu(saved.menu, DEFAULT_CONFIG.menu),
+    input: cleanInput(saved.input, DEFAULT_CONFIG.input),
     gestures: {
       root: { ...DEFAULT_CONFIG.gestures.root, ...cleanBindings(g.root) },
       global: { ...DEFAULT_CONFIG.gestures.global, ...cleanBindings(g.global) },
@@ -50,6 +61,7 @@ export function mergeConfig(cfg: OmniConfig, patch: Partial<OmniConfig>): OmniCo
   const g: Partial<OmniConfig['gestures']> = patch.gestures || {}
   return {
     menu: cleanMenu(patch.menu, cfg.menu),
+    input: cleanInput(patch.input, cfg.input),
     gestures: {
       root: { ...cfg.gestures.root, ...cleanBindings(g.root) },
       global: { ...cfg.gestures.global, ...cleanBindings(g.global) },

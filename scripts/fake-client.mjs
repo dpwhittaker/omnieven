@@ -52,7 +52,9 @@ ws.on('message', (data, isBinary) => {
 })
 ws.on('close', () => { console.log('closed'); process.exit(0) })
 ws.on('error', (e) => { console.error('error', e.message); process.exit(1) })
-const reply = (id, ok, value) => ws.send(JSON.stringify({ t: 'result', id, ok, value }))
+// FAKE_LATENCY=<ms> delays every result, like a slow BLE link.
+const latency = Number(process.env.FAKE_LATENCY) || 0
+const reply = (id, ok, value) => setTimeout(() => ws.send(JSON.stringify({ t: 'result', id, ok, value })), latency)
 // Lines typed before the socket is open are queued and flushed on connect.
 const queued = []
 const send = (ev) => { const f = JSON.stringify({ t: 'event', ev }); if (ws.readyState === 1) ws.send(f); else queued.push(f) }

@@ -440,6 +440,7 @@ export class Shell extends EventEmitter {
   // ── events ─────────────────────────────────────────────────────────
   handleEvent(conn: Connection, raw: EvenHubEvent): void {
     const ev = normalizeEvent(raw)
+    if (this.isRepeat(conn, ev)) { this.emit('event', { ...ev, ts: Date.now(), conn: conn.id, dropped: true }); return }
     this.lastEvent = { ...ev, ts: Date.now(), conn: conn.id }
     this.emit('event', this.lastEvent)
     const app = this.activeApp
@@ -526,6 +527,28 @@ export class Shell extends EventEmitter {
       else if (row.kind === 'group') this.home([...this.homePath, row.node.name])
       else this.open(row.app.id)
     }
+  }
+
+  /**
+   * Input debouncing (config.input): a gesture that repeats the previous one
+   * is dropped when it comes within `repeatMs`, or while the screen update the
+   * previous one caused is still being drawn (bounded by `maxWaitMs`).
+   * Lifecycle, IMU and release events are never dropped.
+   */
+  private isRepeat(conn: Connection, ev: NormalizedEvent): boolean {
+    if (!['tap', 'double', 'up', 'down', 'longpress', 'select', 'menu'].includes(ev.type)) return false
+    const { repeatMs, waitForRender, maxWaitMs } = this.config.input
+    const now = Date.now()
+    const prev = this.lastEvent
+    const same = prev && prev.conn === conn.id && prev.type === ev.type
+      && (ev.type !== 'select' || (prev as { index?: number }).index === (ev as { index?: number }).index)
+      && (ev.type !== 'menu' || (prev as { itemId?: number }).itemId === (ev as { itemId?: number }).itemId)
+    if (!same) return false
+    if (repeatMs > 0 && now - prev.ts < repeatMs) { log('shell', `input: ${ev.type} repeated after ${now - prev.ts} ms — dropped`); return true }
+    if (waitForRender && conn.busySince && conn.busySince >= prev.ts - RENDER_DEBOUNCE_MS && now - conn.busySince < maxWaitMs) {
+      log('shell', `input: ${ev.type} while the previous one is still being drawn (${now - conn.busySince} ms) — dropped`); return true
+    }
+    return false
   }
 
   handleAudio(_conn: Connection, pcm: Uint8Array): void {
