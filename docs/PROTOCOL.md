@@ -15,6 +15,7 @@ s16le, mono) from the client while the mic is on.
 | `{t:'device', status}` / `{t:'location', loc}` / `{t:'launch', source}` | bridge callbacks |
 | `{t:'result', id, ok, value?, error?}` | reply to a command |
 | `{t:'log', level, msg}` | client console relay |
+| `{t:'api', id, method, path, body?}` | HTTP API call tunnelled over the socket (`path` relative to `/api`); answered with `{t:'api', id, status, body}`. The installed bundle runs from a non-http origin in the Even App's WebView where cross-origin `fetch()` fails, so the phone companion uses this. |
 
 ## Server → client (`{t:'cmd', id, op, args}`)
 | op | effect |
