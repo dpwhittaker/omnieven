@@ -67,8 +67,12 @@ export class Store {
   }
   /** An already-imported copy of the same conversation, if any. @param {number} started @param {string} transcript */
   findDuplicate(started, transcript) {
+    // same start minute and near-identical text (two exports of one conversation can differ by a glyph)
     const rows = this.db.prepare('SELECT * FROM sessions WHERE started BETWEEN ? AND ?').all(started - 60_000, started + 60_000)
-    const r = rows.find((x) => String(x.transcript) === transcript)
+    const r = rows.find((x) => {
+      const t = String(x.transcript)
+      return t === transcript || (Math.abs(t.length - transcript.length) <= Math.max(20, transcript.length * 0.01) && t.slice(0, 300) === transcript.slice(0, 300))
+    })
     return r ? Store.row(r) : null
   }
   /** @param {number} id */
