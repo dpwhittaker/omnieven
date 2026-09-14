@@ -84,6 +84,21 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
 })
 
+/** Serve a socket-tunnelled API call by looping back through the HTTP server. */
+async function tunnelApi(conn: Connection, f: { id: number; method: string; path: string; body?: string }) {
+  const host = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST
+  try {
+    const r = await fetch(`http://${host}:${PORT}/api${f.path.startsWith('/') ? f.path : `/${f.path}`}`, {
+      method: f.method || 'GET',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: f.body,
+    })
+    conn.send({ t: 'api', id: f.id, status: r.status, body: await r.text() })
+  } catch (err) {
+    conn.send({ t: 'api', id: f.id, status: 502, body: JSON.stringify({ error: String(err) }) })
+  }
+}
+
 wss.on('connection', (ws, req) => {
   const remote = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?'
   const conn = new Connection(ws, remote)
@@ -111,6 +126,7 @@ wss.on('connection', (ws, req) => {
       case 'launch': conn.launchSource = frame.source; break
       case 'log': log(`client:${conn.id}`, `${frame.level}: ${frame.msg}`); break
       case 'pong': break
+      case 'api': void tunnelApi(conn, frame); break
       default: log('warn', `client ${conn.id} unknown frame ${(frame as { t: string }).t}`)
     }
   })

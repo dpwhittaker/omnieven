@@ -57,6 +57,8 @@ export type ServerFrame =
   | { t: 'ping' }
   | { t: 'welcome'; serverVersion: string }
   | { t: 'error'; msg: string }
+  /** reply to a client `api` frame (the HTTP API tunnelled over the socket) */
+  | { t: 'api'; id: number; status: number; body: string }
 
 // ── Client → server ────────────────────────────────────────────────
 export interface HelloFrame {
@@ -78,6 +80,12 @@ export type ClientFrame =
   | { t: 'result'; id: number; ok: boolean; value?: unknown; error?: string }
   | { t: 'log'; level: 'info' | 'warn' | 'error'; msg: string }
   | { t: 'pong' }
+  /**
+   * HTTP API call tunnelled over the socket. The Even App's WebView serves the
+   * installed bundle from a non-http origin where cross-origin fetch() fails,
+   * so the phone companion uses this instead. `path` is relative to `/api`.
+   */
+  | { t: 'api'; id: number; method: string; path: string; body?: string }
 
 // ── Even Hub event envelope (as relayed from onEvenHubEvent) ───────
 // Protobuf omits zero-valued fields, so eventType 0 (CLICK) and index 0

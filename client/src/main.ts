@@ -14,7 +14,7 @@ import {
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import { OmniSocket } from './ws'
-import { Companion } from './companion'
+import { Companion, type ApiTransport } from './companion'
 import { CLIENT_VERSION, type ClientFrame, type Cmd, type ServerFrame } from './protocol'
 
 // Stored through the Even App storage bridge as two plain strings (older
@@ -78,6 +78,17 @@ let cmdChain: Promise<unknown> = Promise.resolve()
 // Every frame that leaves the client is checked against the shared contract.
 const sendFrame = (f: ClientFrame) => sock.send(f)
 
+// API calls tunnelled over the socket (see ClientFrame 'api'): the installed
+// bundle runs from a non-http origin where cross-origin fetch() fails.
+let apiSeq = 0
+const apiPending = new Map<number, (r: { status: number; body: string }) => void>()
+const apiOverSocket: ApiTransport = (method, path, body) => new Promise((resolve, reject) => {
+  const id = ++apiSeq
+  const timer = setTimeout(() => { apiPending.delete(id); reject(new Error('timed out')) }, CALL_TIMEOUT_MS)
+  apiPending.set(id, (r) => { clearTimeout(timer); resolve(r) })
+  if (!sendFrame({ t: 'api', id, method, path, body })) { clearTimeout(timer); apiPending.delete(id); reject(new Error('not connected')) }
+})
+
 const sock = new OmniSocket({
   onOpen: () => {
     setStatus('Connected', 'ok')
@@ -92,6 +103,7 @@ const sock = new OmniSocket({
     if (frame.t === 'ping') { sendFrame({ t: 'pong' }); return }
     if (frame.t === 'welcome') { log(`server ${frame.serverVersion}`); return }
     if (frame.t === 'error') { log(`server error: ${frame.msg}`, 'error'); return }
+    if (frame.t === 'api') { const p = apiPending.get(frame.id); if (p) { apiPending.delete(frame.id); p(frame) } return }
     if (frame.t === 'cmd') {
       // Bridge calls must never overlap: the SDK shares one BLE link.
       cmdChain = cmdChain.then(() => runCmd(frame)).catch(() => {})
@@ -292,7 +304,7 @@ function connectWith(p: Profile) {
   if (!p.url) { setStatus('Enter the server URL', 'bad'); return }
   if (!p.token) { setStatus('Enter the token', 'bad'); return }
   setStatus(`Connecting to ${p.url}`, 'wait')
-  companion.configure(p.url, p.token)
+  companion.configure(p.url, p.token, apiOverSocket)
   const u = new URL(p.url)
   u.searchParams.set('token', p.token)
   sock.disconnect()

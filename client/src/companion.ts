@@ -5,8 +5,13 @@ export interface AppInfo { id: string; title: string; group: string; active: boo
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
+/** Sends an API call (path relative to /api) and resolves with the raw reply. */
+export type ApiTransport = (method: string, path: string, body?: string) => Promise<{ status: number; body: string }>
+
 export class Companion {
   private origin = ''
+  /** when set, API calls go through this instead of fetch() (the socket tunnel) */
+  private transport: ApiTransport | null = null
   private token = ''
   private apps: AppInfo[] = []
   private timer: number | null = null
@@ -19,9 +24,10 @@ export class Companion {
   }
 
   /** origin = http(s) origin derived from the ws URL */
-  configure(wsUrl: string, token: string) {
+  configure(wsUrl: string, token: string, transport: ApiTransport | null = null) {
     try { const u = new URL(wsUrl); this.origin = `${u.protocol === 'wss:' ? 'https:' : 'http:'}//${u.host}` } catch { this.origin = '' }
     this.token = token
+    this.transport = transport
   }
 
   showTab(which: 'apps' | 'connect') {
@@ -35,6 +41,11 @@ export class Companion {
   stop() { if (this.timer) { clearInterval(this.timer); this.timer = null } }
 
   private async api(path: string, opts: RequestInit = {}) {
+    if (this.transport) {
+      const r = await this.transport(opts.method || 'GET', path, typeof opts.body === 'string' ? opts.body : undefined)
+      if (r.status < 200 || r.status >= 300) throw new Error(`${r.status}`)
+      return r.body ? JSON.parse(r.body) : null
+    }
     const r = await fetch(`${this.origin}/api${path}`, { ...opts, headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json', ...(opts.headers || {}) } })
     if (!r.ok) throw new Error(`${r.status}`)
     return r.json()
