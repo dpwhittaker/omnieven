@@ -352,7 +352,7 @@ export default {
   http(ctx, req) {
     const s = store(ctx)
     if (req.path === '/sessions') return { sessions: s.list(50).map((x) => ({ id: x.id, started: x.started, title: x.title, summary: x.summary, actions: x.actions })) }
-    if (req.path.startsWith('/session/')) { const x = s.get(Number(req.path.slice(9))); return x ? { session: x } : { status: 404, json: { error: 'no such session' } } }
+    if (req.path.startsWith('/session/') && req.method === 'GET') { const x = s.get(Number(req.path.slice(9))); return x ? { session: x } : { status: 404, json: { error: 'no such session' } } }
     if (req.path === '/prep' && req.method === 'POST') { const b = /** @type {any} */ (req.body); ctx.state.prep = String(b?.prep ?? '').slice(0, 4000); ctx.save(); ctx.render(); return { ok: true } }
     if (req.path === '/todo' && req.method === 'POST') { const b = /** @type {any} */ (req.body); if (b?.text) void addTodo(ctx, { text: String(b.text), due: b.due }); return { ok: true } }
     if (req.path === '/live') return { screen: ctx.mem.screen, text: transcript(ctx.mem), interim: ctx.mem.interim, cue: ctx.mem.cue }
