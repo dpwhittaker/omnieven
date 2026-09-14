@@ -93,7 +93,10 @@ screens rendered by the shell, reachable from the tap-and-hold menu. Demo apps (
 Clock (full screen / corner / big digits, brightness, fade-away, wake when looking up or down
 via IMU — all from its settings), Stopwatch, System monitor (image sparkline), Hacker News
 (article text + comments), Notes (inbox with webhook + JSON API), Voice memo (TypeScript,
-glasses mic → WAV, play/download from the phone).
+glasses mic → WAV, play/download from the phone), Todoist (open tasks, complete/postpone,
+add from anywhere), Transcribe (live captions via Deepgram, saved sessions with an AI
+title/summary/action items, prep notes, and mid-conversation cues from your notes and past
+sessions — suggested to-dos go to Todoist with a swipe; put who you are in `data/profile.md`).
 
 **The phone app is a companion too.** Its *Apps* tab lists your apps (open on the glasses,
 open their settings) and shows each app's own phone page (`phone` hook) — e.g. the voice
