@@ -282,7 +282,7 @@ export default {
   onMessage(ctx, msg) {
     // the same keys as the settings schema, e.g. {"lines":1,"valign":"bottom"}
     let changed = false
-    for (const st of SETTINGS) if (msg[st.key] !== undefined && st.options.some((o) => o.value === msg[st.key])) { ctx.state[st.key] = msg[st.key]; changed = true }
+    for (const st of SETTINGS) if (msg[st.key] !== undefined && st.options.some((o) => o.value === msg[st.key])) { /** @type {any} */ (ctx.state)[st.key] = msg[st.key]; changed = true }
     if (changed) { ctx.save(); reflow(ctx); ctx.render() }
     if (msg.open) { const f = ctx.mem.fictions.find((x) => x.id === Number(msg.open)); if (f) { ctx.open(); void openFiction(ctx, f) } }
     return { screen: ctx.mem.screen, fiction: ctx.mem.fiction?.id ?? null, chapter: ctx.mem.chapter?.id ?? null }
