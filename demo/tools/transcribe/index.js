@@ -244,7 +244,8 @@ export default {
     m.lastCueAt = 0; m.lastCueWords = 0; m.review = null; m.page = 0; m.sessions = []; m.summarizing = false
   },
   onClose(ctx) { if (ctx.mem.screen === 'live') void stop(ctx) },
-  unload(ctx) { ctx.mem.stream?.close() },
+  // mem survives a hot reload; drop the Store so the reloaded class is used
+  unload(ctx) { ctx.mem.stream?.close(); try { ctx.mem.store?.db.close() } catch {} ctx.mem.store = null },
 
   render(ctx) {
     const m = ctx.mem, s = ctx.state
