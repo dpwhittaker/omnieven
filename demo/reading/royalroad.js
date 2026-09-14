@@ -11,9 +11,9 @@
 /** @typedef {{ id: number, title: string, author: string, chapters: number, downloaded: number, position: { chapter_id: number, paragraph: number, ord: number, title: string } | null }} Fiction */
 /** @typedef {{ id: number, fictionId: number, ord: number, total: number, title: string, paragraphs: string[], prev: number | null, next: number | null }} Chapter */
 /** @typedef {{ text: string, para: number }} Line */
-/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean, step: 'page'|'half'|'3'|'2'|'1' }} State */
+/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean, step: 'page'|'half'|'3'|'2'|'1', dimOld: boolean }} State */
 /** @typedef {{ screen: 'library'|'reader'|'chapters', fictions: Fiction[], fiction: Fiction | null, chapter: Chapter | null,
- *   lines: Line[], top: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
+ *   lines: Line[], top: number, fresh: { from: number, to: number } | null, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
  *   chapterWindow: number, saveTimer: any }} Mem */
 
 const W = 576, H = 288, HEADER = 34, PAD = 4, LINE = 27
@@ -26,8 +26,10 @@ const W = 576, H = 288, HEADER = 34, PAD = 4, LINE = 27
 function layout(ctx) {
   const s = ctx.state
   const top = s.header ? HEADER : 0
-  const lines = Math.min(s.lines, Math.floor((H - top - 2 * PAD) / LINE))
-  const w = Math.min(W, s.width), h = lines * LINE + 2 * PAD
+  // with 'dim old text' the box may be split into two containers, each padded
+  const padding = s.dimOld ? 4 * PAD : 2 * PAD
+  const lines = Math.min(s.lines, Math.floor((H - top - padding) / LINE))
+  const w = Math.min(W, s.width), h = lines * LINE + padding
   const x = s.halign === 'left' ? 0 : s.halign === 'right' ? W - w : Math.round((W - w) / 2)
   const y = s.valign === 'top' ? top : s.valign === 'bottom' ? H - h : top + Math.round((H - top - h) / 2)
   return { x, y, w, h, lines, top, textWidth: w - 2 * PAD - 8 }
@@ -97,6 +99,9 @@ function scroll(ctx, delta) {
   let top = Math.min(maxTop(ctx), Math.max(0, m.top + delta))
   if (Math.abs(delta) >= pageLines(ctx) && top < maxTop(ctx) && m.lines[top]?.text === '') top++
   if (top === m.top) return false
+  // lines that were not on screen before, for the 'dim old text' option
+  const n = pageLines(ctx)
+  m.fresh = delta > 0 ? { from: Math.max(top, m.top + n), to: top + n } : { from: top, to: Math.min(m.top, top + n) }
   m.top = top
   return true
 }
@@ -121,6 +126,7 @@ async function openChapter(ctx, chapterId, paragraph = 0) {
     m.chapter = ch
     m.lines = flow(ctx, ch.paragraphs)
     m.top = topForParagraph(ctx, paragraph)
+    m.fresh = null
     m.screen = 'reader'
     if (ch.next) void loadChapter(ctx, ch.next).catch(() => {})   // prefetch
   } catch (err) { m.error = err instanceof Error ? err.message : String(err) }
@@ -169,6 +175,7 @@ const SETTINGS = [
   { key: 'halign', label: 'Horizontal position', options: ['left', 'center', 'right'].map((v) => ({ value: v, label: v })) },
   { key: 'valign', label: 'Vertical position', options: ['top', 'center', 'bottom'].map((v) => ({ value: v, label: v })) },
   { key: 'step', label: 'Scroll step (swipes)', options: [['page', 'a page'], ['half', 'half a page'], ['3', '3 lines'], ['2', '2 lines'], ['1', '1 line']].map(([v, l]) => ({ value: v, label: l })) },
+  { key: 'dimOld', label: 'Dim old text on scroll', options: [{ value: false, label: 'off' }, { value: true, label: 'on (new lines brighter)' }] },
   { key: 'header', label: 'Header line', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
   { key: 'brightness', label: 'Text brightness', options: [1, 2, 3, 4].map((v) => ({ value: v, label: ['', 'dim', 'medium', 'bright', 'brightest'][v] })) },
 ]
@@ -181,6 +188,7 @@ function reflow(ctx) {
   const para = m.lines[m.top]?.para ?? 0
   m.lines = flow(ctx, m.chapter.paragraphs)
   m.top = topForParagraph(ctx, para)
+  m.fresh = null
 }
 
 /** @type {import('../../shared/app.ts').OmniApp<State, Mem>} */
@@ -197,11 +205,13 @@ export default {
     ctx.state.valign ??= 'top'
     ctx.state.header ??= true
     ctx.state.step ??= 'page'
+    ctx.state.dimOld ??= false
     ctx.mem.screen = 'library'
     ctx.mem.fictions ??= []
     ctx.mem.cache ??= {}
     ctx.mem.lines ??= []
     ctx.mem.top ??= 0
+    ctx.mem.fresh ??= null
     ctx.mem.chapterList ??= []
     ctx.mem.loading = ''; ctx.mem.error = ''
     ctx.mem.chapterWindow = 0
@@ -209,7 +219,7 @@ export default {
   onOpen(ctx) { if (ctx.mem.screen === 'library') void loadLibrary(ctx) },
   onSettingsChange(ctx, key) {
     // anything that changes the box re-flows the chapter, keeping the current paragraph
-    if (['lines', 'width', 'header'].includes(key)) reflow(ctx)
+    if (['lines', 'width', 'header', 'dimOld'].includes(key)) reflow(ctx)
   },
 
   render(ctx) {
@@ -232,11 +242,25 @@ export default {
       const end = Math.min(m.lines.length, m.top + box.lines)
       const last = m.top >= maxTop(ctx)
       const hint = last ? (m.chapter.next ? 'tap: next chapter' : 'the end (so far)') : `${Math.round((end / m.lines.length) * 100)}%`
-      const text = m.lines.slice(m.top, end).map((l) => l.text).join('\n')
+      const lineText = (/** @type {number} */ a, /** @type {number} */ b) => m.lines.slice(a, b).map((l) => l.text).join('\n')
+      /** @type {import('../../shared/view.ts').Container[]} */
+      const body = []
+      const f = m.fresh
+      if (s.dimOld && f && f.from < f.to && (f.from > m.top || f.to < end)) {
+        // split at the boundary: the lines already seen one level dimmer, the new ones at full brightness
+        const dim = Math.max(1, s.brightness - 1)
+        const newAtBottom = f.from > m.top
+        const cut = newAtBottom ? f.from : f.to
+        const h1 = (cut - m.top) * LINE + 2 * PAD
+        body.push(
+          { type: 'text', name: newAtBottom ? 'old' : 'new', x: box.x, y: box.y, w: box.w, h: h1, padding: PAD, textColor: newAtBottom ? dim : s.brightness, text: lineText(m.top, cut) },
+          { type: 'text', name: newAtBottom ? 'new' : 'old', x: box.x, y: box.y + h1, w: box.w, h: box.h - h1, padding: PAD, capture: true, textColor: newAtBottom ? s.brightness : dim, text: lineText(cut, end) },
+        )
+      } else body.push({ type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness, text: lineText(m.top, end) })
       return {
         containers: [
           ...(s.header ? [header(`${ctx.ui.fit(m.chapter.title, 330)}  ·  ch ${m.chapter.ord + 1}/${m.chapter.total}  ·  ${hint}`)] : []),
-          { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness, text },
+          ...body,
         ],
         menu: [{ id: 'next', label: 'Next chapter' }, { id: 'prev', label: 'Previous chapter' }, { id: 'chapters', label: 'Chapters…' }, { id: 'library', label: 'Library' }],
       }
