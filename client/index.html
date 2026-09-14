@@ -17,6 +17,9 @@
       .dot { width: 10px; height: 10px; border-radius: 50%; background: #666; }
       .dot.ok { background: #3fbf7f; } .dot.bad { background: #e05a5a; } .dot.wait { background: #e0b64a; }
       nav { display: flex; gap: 6px; padding: 10px 16px; }
+      header .brand { display: flex; align-items: center; gap: 10px; flex: 1; }
+      header .brand img { width: 24px; height: 24px; image-rendering: pixelated; }
+      header .sub { font-size: 12px; color: #8a8a8a; }
       nav button { flex: 1; padding: 9px; border-radius: 8px; border: 0; background: #2e2e2e; color: #bbb; font-size: 14px; font-weight: 600; }
       nav button.on { background: #3fbf7f; color: #0b1f14; }
       section { display: none; flex: 1; flex-direction: column; gap: 12px; padding: 0 16px 16px; min-height: 0; }
@@ -45,12 +48,33 @@
       #panel .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
       #panel .bar b { flex: 1; }
       #panel iframe { flex: 1; border: 0; border-radius: 10px; background: #232323; width: 100%; }
+      /* setup tab */
+      #sec-setup { overflow: auto; gap: 14px; }
+      .card { background: #2b2b2b; border-radius: 12px; padding: 14px 16px; }
+      .card h2 { font-size: 15px; margin: 0 0 6px; }
+      .card h2 small { color: #3fbf7f; font-weight: 600; margin-right: 8px; }
+      .card p { margin: 0 0 8px; color: #c8c8c8; font-size: 14px; }
+      .card p.muted { color: #8f8f8f; font-size: 13px; }
+      textarea { width: 100%; box-sizing: border-box; min-height: 150px; padding: 10px 12px; border-radius: 8px; border: 1px solid #444; background: #161616; color: #ddd; font: 13px/1.45 ui-monospace, Menlo, monospace; resize: vertical; }
+      .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+      .steps li { display: flex; gap: 10px; align-items: flex-start; }
+      .steps input[type=checkbox] { width: 20px; height: 20px; margin: 1px 0 0; accent-color: #3fbf7f; flex: 0 0 auto; }
+      .steps label { font-size: 14px; color: #e0e0e0; margin: 0; line-height: 1.4; }
+      .steps label small { display: block; color: #8f8f8f; font-size: 12px; margin-top: 2px; }
+      .steps li.done label { color: #777; text-decoration: line-through; }
+      .steps li.done label small { text-decoration: none; }
+      code { font: 12px ui-monospace, Menlo, monospace; background: #161616; padding: 1px 5px; border-radius: 4px; color: #b8e6cc; }
+      a { color: #7fd6a8; }
+      .links { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
     </style>
   </head>
   <body>
     <div id="app">
-      <header><h1>Omni</h1><span id="dot" class="dot"></span></header>
-      <nav><button id="tab-apps" class="on">Apps</button><button id="tab-connect">Connect</button></nav>
+      <header>
+        <div class="brand"><img src="./icon.png" alt="" width="24" height="24" /><div><h1>Omni</h1><div class="sub">your server, on your glasses</div></div></div>
+        <span id="dot" class="dot"></span>
+      </header>
+      <nav><button id="tab-apps" class="on">Apps</button><button id="tab-connect">Connect</button><button id="tab-setup">Setup</button></nav>
 
       <section id="sec-apps" class="on">
         <div id="applist"><div class="status wait">Connect to see your apps.</div></div>
@@ -75,6 +99,36 @@
           <button id="disconnect" class="secondary">Disconnect</button>
         </div>
         <pre id="log"></pre>
+      </section>
+
+      <section id="sec-setup">
+        <div class="card">
+          <h2>Omni needs a server you run</h2>
+          <p>Omni is a framework: the glasses show whatever your own server renders, and every app is a small file on that server that hot-reloads onto your glasses. Nothing is hosted for you — set up a server once (about ten minutes), then paste its address into the <b>Connect</b> tab.</p>
+          <p class="muted">Any machine your phone can reach works: a small VPS, a home box, or a laptop on Tailscale. Node.js 22.18+ or Docker.</p>
+          <div class="links"><a id="link-repo" href="#" target="_blank" rel="noopener">Source &amp; README</a><a id="link-docs" href="#" target="_blank" rel="noopener">Writing apps</a><a id="link-issues" href="#" target="_blank" rel="noopener">Get help</a></div>
+        </div>
+
+        <div class="card">
+          <h2><small>Option A</small>Hand it to an AI assistant</h2>
+          <p>If you use Claude Code (or another agent with shell access on the machine), copy this and paste it there. It knows the rest from the repository.</p>
+          <textarea id="ai-prompt" readonly></textarea>
+          <div class="row" style="margin-top:8px"><button id="copy-prompt" class="primary">Copy prompt</button></div>
+          <p class="muted" style="margin-top:8px">It will come back with a WebSocket URL and a token: paste them into <b>Connect</b>, or scan the QR code on the server's setup page in Developer Mode.</p>
+        </div>
+
+        <div class="card">
+          <h2><small>Option B</small>Do it yourself</h2>
+          <ul class="steps" id="steps">
+            <li><input type="checkbox" id="st1" /><label for="st1">Pick a machine your phone can reach<small>A $5 VPS, a home server, or a laptop on Tailscale. Node.js 22.18+ or Docker.</small></label></li>
+            <li><input type="checkbox" id="st2" /><label for="st2">Clone and install<small><code>git clone https://github.com/lettucegoblin/omnieven &amp;&amp; cd omnieven &amp;&amp; npm install</code></small></label></li>
+            <li><input type="checkbox" id="st3" /><label for="st3">Start the server<small><code>PUBLIC_URL=https://omni.example.com npm start</code> — or <code>docker compose --profile tls up -d</code> for HTTPS out of the box. The README shows how to keep it running (systemd).</small></label></li>
+            <li><input type="checkbox" id="st4" /><label for="st4">Put it behind HTTPS<small>The Even app needs a public <code>wss://</code> address: the bundled Caddy profile, your existing reverse proxy, or Tailscale Serve.</small></label></li>
+            <li><input type="checkbox" id="st5" /><label for="st5">Open the setup page<small>Visit your <code>PUBLIC_URL</code> in a browser: it shows the token and a QR code.</small></label></li>
+            <li><input type="checkbox" id="st6" /><label for="st6">Connect this app<small>Paste the WebSocket URL and token into <b>Connect</b> and tap <b>Save &amp; connect</b>. The glasses switch from the start screen to your dashboard.</small></label></li>
+            <li><input type="checkbox" id="st7" /><label for="st7">Make it yours<small>Edit or add files in <code>apps/</code> on the server — they appear on the glasses within a second. Or just ask your assistant: "add a weather app to my glasses".</small></label></li>
+          </ul>
+        </div>
       </section>
     </div>
     <script type="module" src="/src/main.ts"></script>

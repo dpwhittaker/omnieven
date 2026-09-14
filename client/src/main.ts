@@ -15,7 +15,8 @@ import {
 } from '@evenrealities/even_hub_sdk'
 import { OmniSocket } from './ws'
 import { Companion, type ApiTransport } from './companion'
-import { CLIENT_VERSION, type ClientFrame, type Cmd, type ServerFrame } from './protocol'
+import { initSetup } from './setup'
+import { CLIENT_VERSION, type ClientFrame, type Cmd, type PagePayload, type ServerFrame } from './protocol'
 
 // Stored through the Even App storage bridge as two plain strings (older
 // builds kept one JSON blob under PROFILE_LEGACY_KEY, still read as fallback).
@@ -71,6 +72,8 @@ function tokenFromQuery(): string {
 // ── bridge + socket ──────────────────────────────────────────────────
 let bridge: EvenAppBridge | null = null
 let pageCreated = false
+/** true once the server has drawn a page; the local splash stops updating then */
+let serverPageShown = false
 let launchSource: string | null = null
 let audioOn = false
 let cmdChain: Promise<unknown> = Promise.resolve()
@@ -92,12 +95,14 @@ const apiOverSocket: ApiTransport = (method, path, body) => new Promise((resolve
 const sock = new OmniSocket({
   onOpen: () => {
     setStatus('Connected', 'ok')
+    splash('Connected to your server — loading the dashboard…')
     log('socket open')
     void sendHello()
     companion.start()
   },
   onClose: (reason) => {
     setStatus(`Disconnected (${reason || 'closed'}) – retrying`, 'wait')
+    splash(`Omni started.\n\nCan't reach the server (${reason || 'closed'}) — retrying.\nCheck the URL and token in Omni on your phone.`)
   },
   onJson: (frame: ServerFrame) => {
     if (frame.t === 'ping') { sendFrame({ t: 'pong' }); return }
@@ -140,6 +145,43 @@ function b64ToBytes(b64: string): Uint8Array {
   return out
 }
 
+// ── local splash ─────────────────────────────────────────────────────
+// The glasses must show something the moment the app starts, before (and
+// without) a server: "Omni started" plus a status line. It is created as
+// the startup page; the server's first render then rebuilds over it.
+const SPLASH_BODY = 2
+function splashPage(status: string): PagePayload {
+  const box = { borderWidth: 0, borderColor: 0, borderRadius: 0, paddingLength: 4 }
+  return {
+    containerTotalNum: 2,
+    textObject: [
+      { ...box, xPosition: 0, yPosition: 0, width: 576, height: 36, containerID: 1, containerName: 'splash-h', zOrderIndex: 1, isEventCapture: 0, textColor: 2, content: 'Omni  ·  your server-side dashboard' },
+      { ...box, xPosition: 0, yPosition: 36, width: 576, height: 252, containerID: SPLASH_BODY, containerName: 'splash-b', zOrderIndex: 2, isEventCapture: 1, content: status },
+    ],
+    listObject: [], imageObject: [],
+  }
+}
+let splashText = ''
+/** Show (or update) the splash; a no-op once the server has drawn. */
+function splash(status: string) {
+  if (!bridge || serverPageShown) return
+  cmdChain = cmdChain.then(async () => {
+    if (serverPageShown || !bridge) return
+    try {
+      if (!pageCreated) {
+        const r = await withTimeout(bridge.createStartUpPageContainer(splashPage(status) as any), 'createStartUpPageContainer')
+        pageCreated = r === 0
+        splashText = status
+        if (r !== 0) log(`splash create result ${r}`, 'warn')
+      } else if (status !== splashText) {
+        await withTimeout(bridge.textContainerUpgrade({ containerID: SPLASH_BODY, containerName: 'splash-b', content: status } as any), 'textContainerUpgrade')
+        splashText = status
+      }
+    } catch (err) { log(`splash: ${err}`, 'warn') }
+  }).catch(() => {})
+}
+const SPLASH_NO_SERVER = 'Omni started.\n\nNo server set up yet — open Omni on your phone\nfor the setup guide (manual, or hand it to an AI assistant).'
+
 async function runCmd(cmd: Cmd) {
   const { id, op } = cmd
   const reply = (ok: boolean, value?: unknown, error?: string) => sendFrame({ t: 'result', id, ok, value, error })
@@ -148,6 +190,7 @@ async function runCmd(cmd: Cmd) {
     switch (cmd.op) {
       case 'page': {
         const args = cmd.args as any
+        serverPageShown = true
         if (!pageCreated) {
           const r = await withTimeout(bridge.createStartUpPageContainer(args), 'createStartUpPageContainer')
           pageCreated = r === 0
@@ -249,6 +292,8 @@ function relayEvent(ev: EvenHubEvent) {
     if (type === OsEventTypeList.SYSTEM_EXIT_EVENT || type === OsEventTypeList.ABNORMAL_EXIT_EVENT) {
       // The glasses page is gone; the next 'page' must be a create again.
       pageCreated = false
+      serverPageShown = false
+      splashText = ''
       audioOn = false
     }
     if (type === OsEventTypeList.IMU_DATA_REPORT) {
@@ -305,6 +350,8 @@ function connectWith(p: Profile) {
   if (!p.url) { setStatus('Enter the server URL', 'bad'); return }
   if (!p.token) { setStatus('Enter the token', 'bad'); return }
   setStatus(`Connecting to ${p.url}`, 'wait')
+  let host = p.url; try { host = new URL(p.url).host } catch {}
+  splash(`Omni started.\n\nConnecting to ${host}…`)
   companion.configure(p.url, p.token, apiOverSocket)
   const u = new URL(p.url)
   u.searchParams.set('token', p.token)
@@ -314,6 +361,7 @@ function connectWith(p: Profile) {
 
 // ── boot ─────────────────────────────────────────────────────────────
 async function boot() {
+  initSetup()
   setStatus('Waiting for Even App bridge…', 'wait')
   try {
     bridge = await waitForEvenAppBridge()
@@ -325,13 +373,15 @@ async function boot() {
     const token = tokenFromQuery()
     const url = defaultUrl()
     elUrl.value = url; elToken.value = token
-    if (token && url) { companion.configure(url, token); companion.start() } else companion.showTab('connect')
+    if (token && url) { companion.configure(url, token); companion.start() } else companion.showTab('setup')
     return
   }
   bridge.onLaunchSource((src) => { launchSource = src; sendFrame({ t: 'launch', source: src }) })
   bridge.onDeviceStatusChanged((status) => sendFrame({ t: 'device', status: status as any }))
   bridge.onAppLocationChanged((loc) => sendFrame({ t: 'location', loc: loc as any }))
   bridge.onEvenHubEvent(relayEvent)
+  // Draw immediately, before anything that could take time.
+  splash('Omni started.\n\nStarting up…')
 
   const profile = await loadProfile()
   elUrl.value = profile.url
@@ -348,7 +398,7 @@ async function boot() {
   elDisconnect.onclick = () => { sock.disconnect(); companion.stop(); setStatus('Disconnected', 'bad') }
 
   if (profile.url && profile.token) connectWith(profile)
-  else { setStatus('Enter server URL and token, then Save', 'wait'); companion.showTab('connect') }
+  else { setStatus('No server set up yet', 'wait'); splash(SPLASH_NO_SERVER); companion.showTab('setup') }
 }
 
 void boot()

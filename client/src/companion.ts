@@ -19,6 +19,7 @@ export class Companion {
   constructor() {
     $('tab-apps').onclick = () => this.showTab('apps')
     $('tab-connect').onclick = () => this.showTab('connect')
+    $('tab-setup').onclick = () => this.showTab('setup')
     $('panel-close').onclick = () => this.closePanel()
     $('panel-reload').onclick = () => { const f = $<HTMLIFrameElement>('panel-frame'); f.src = f.src }
   }
@@ -30,11 +31,11 @@ export class Companion {
     this.transport = transport
   }
 
-  showTab(which: 'apps' | 'connect') {
-    $('tab-apps').classList.toggle('on', which === 'apps')
-    $('tab-connect').classList.toggle('on', which === 'connect')
-    $('sec-apps').classList.toggle('on', which === 'apps')
-    $('sec-connect').classList.toggle('on', which === 'connect')
+  showTab(which: 'apps' | 'connect' | 'setup') {
+    for (const t of ['apps', 'connect', 'setup'] as const) {
+      $(`tab-${t}`).classList.toggle('on', which === t)
+      $(`sec-${t}`).classList.toggle('on', which === t)
+    }
   }
 
   start() { this.stop(); void this.refresh(); this.timer = window.setInterval(() => void this.refresh(), 5000) }
