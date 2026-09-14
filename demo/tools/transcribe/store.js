@@ -58,7 +58,12 @@ export class Store {
       s.people.length ? `## People\n\n${s.people.map((p) => `- ${p.name}${p.role ? ` — ${p.role}` : ''}`).join('\n')}\n` : '',
       `## Transcript\n\n${s.transcript}`,
     ].filter(Boolean).join('\n')
-    writeFileSync(join(this.dir, 'sessions', `${date.slice(0, 10)}-${slug || s.id}.md`), md)
+    // the id keeps two sessions with the same title from sharing a file
+    const file = `${date.slice(0, 10)}-${slug || 'session'}-${s.id}.md`
+    for (const f of readdirSync(join(this.dir, 'sessions'))) {   // rename if the title changed
+      if (f !== file && f.endsWith(`-${s.id}.md`)) unlinkSync(join(this.dir, 'sessions', f))
+    }
+    writeFileSync(join(this.dir, 'sessions', file), md)
   }
   /** An already-imported copy of the same conversation, if any. @param {number} started @param {string} transcript */
   findDuplicate(started, transcript) {
@@ -74,7 +79,7 @@ export class Store {
     for (const f of readdirSync(dir)) {
       if (!f.endsWith('.md')) continue
       const head = readFileSync(join(dir, f), 'utf8').slice(0, 400)
-      if (head.includes(`\n- session: ${id}\n`)) unlinkSync(join(dir, f))
+      if (f.endsWith(`-${id}.md`) || head.includes(`\n- session: ${id}\n`)) unlinkSync(join(dir, f))
     }
   }
   /** @param {number} id @returns {Session | null} */
