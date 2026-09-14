@@ -32,7 +32,7 @@ function draw() {
 
 ws.on('open', () => {
   console.log('connected')
-  ws.send(JSON.stringify({ t: 'hello', token, client: { version: 'fake', sdk: '0.0.15' }, device: { model: 'fake-g2', status: { batteryLevel: 88 } }, user: { name: 'fake' }, launchSource: 'appMenu', pageCreated: false }))
+  ws.send(JSON.stringify({ t: 'hello', token, client: { version: 'fake', sdk: '0.0.15' }, tz: process.env.FAKE_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone, locale: 'en-US', device: { model: 'fake-g2', status: { batteryLevel: 88 } }, user: { name: 'fake' }, launchSource: 'appMenu', pageCreated: false }))
 })
 ws.on('message', (data, isBinary) => {
   if (isBinary) return

@@ -30,7 +30,8 @@ const DEFAULTS = { style: 'full', position: 'top-right', size: 3, brightness: 3,
 /** @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx */
 function timeString(ctx) {
   const s = ctx.state
-  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(s.seconds ? { second: '2-digit' } : {}), hour12: s.hour12 })
+  // phone's time zone (ctx.tz), not the server's
+  return new Date().toLocaleTimeString(ctx.locale, { hour: '2-digit', minute: '2-digit', ...(s.seconds ? { second: '2-digit' } : {}), hour12: s.hour12, timeZone: ctx.tz })
 }
 /** @param {string} pos @param {number} w @param {number} h */
 function anchor(pos, w, h, margin = 4) {
@@ -107,11 +108,11 @@ export default {
     if (isFaded(ctx)) { if (wantsImu(ctx)) void setImu(ctx, true); return { containers: [] } }
 
     const time = timeString(ctx)
-    const dateLine = s.date ? new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : ''
+    const dateLine = s.date ? new Date().toLocaleDateString(ctx.locale, { weekday: 'short', month: 'short', day: 'numeric', timeZone: ctx.tz }) : ''
 
     if (s.style === 'full') {
       const batt = ctx.device?.status?.batteryLevel
-      const long = s.date ? new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : ''
+      const long = s.date ? new Date().toLocaleDateString(ctx.locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: ctx.tz }) : ''
       return {
         containers: ctx.ui.rows([
           `\n${time}`,

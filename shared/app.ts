@@ -70,6 +70,13 @@ export interface AppContext<S = Record<string, any>, M = Record<string, any>> {
   storage: { get(key: string): Promise<string>; set(key: string, value: string): Promise<boolean> }
   readonly device: DeviceInfo | null
   readonly user: UserInfo | null
+  /**
+   * The phone's IANA time zone / locale (server's own when nothing is
+   * connected). Use them for anything time-of-day:
+   * `new Date().toLocaleTimeString(ctx.locale, { timeZone: ctx.tz, … })`.
+   */
+  readonly tz: string
+  readonly locale: string
   readonly connected: boolean
   fetch: typeof fetch
 }

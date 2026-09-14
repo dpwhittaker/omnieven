@@ -26,6 +26,8 @@ export class Connection extends EventEmitter {
   user: UserInfo | null = null
   launchSource: string | null = null
   client: HelloFrame['client'] | null = null
+  tz: string | null = null
+  locale: string | null = null
   alive = true
   /** last compiled view known to be on the glasses */
   committed: Compiled | null = null

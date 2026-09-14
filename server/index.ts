@@ -114,9 +114,10 @@ wss.on('connection', (ws, req) => {
     switch (frame.t) {
       case 'hello':
         conn.client = frame.client; conn.device = frame.device; conn.user = frame.user
+        conn.tz = frame.tz || null; conn.locale = frame.locale || null
         conn.launchSource = frame.launchSource; conn.pageCreated = !!frame.pageCreated
         conn.resetPage()
-        log('ws', `client ${conn.id} hello: ${frame.client?.version} device=${frame.device?.model ?? '?'} pageCreated=${frame.pageCreated}`)
+        log('ws', `client ${conn.id} hello: ${frame.client?.version} device=${frame.device?.model ?? '?'} tz=${frame.tz ?? '?'} pageCreated=${frame.pageCreated}`)
         if (!registered) { registered = true; shell.addConnection(conn) } else shell.requestRender()
         break
       case 'result': conn.handleResult(frame); break

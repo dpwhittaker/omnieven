@@ -37,7 +37,7 @@ export default {
     const open = ctx.mem.open != null ? notes[ctx.mem.open] : null
     if (open) {
       return {
-        containers: ctx.ui.headerBody(new Date(open.at).toLocaleString(), `${open.text}\n\ndouble-tap: back`),
+        containers: ctx.ui.headerBody(new Date(open.at).toLocaleString(ctx.locale, { timeZone: ctx.tz }), `${open.text}\n\ndouble-tap: back`),
         menu: [{ id: 'delete', label: 'Delete note' }, { id: 'clear', label: 'Clear all' }],
       }
     }

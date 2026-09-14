@@ -164,6 +164,7 @@ On the home screen the menu is *Settings* and *Exit* (plus *Top level* inside a 
 | `audio(on, 'glasses'|'phone')`, `imu(on, pace)`, `location(opts)` | device features → `onAudio` / `onImu` / `onLocation` |
 | `storage.get/set(key, value)` | phone-side key/value store (Even App localStorage) |
 | `device`, `user`, `connected` | device info (incl. `status.batteryLevel`), Even user, is a client connected |
+| `tz`, `locale` | the **phone's** IANA time zone and locale (the server's own when nothing is connected). Always pass them when formatting times: `new Date().toLocaleTimeString(ctx.locale, { timeZone: ctx.tz })` — the server may run in another zone |
 | `fetch`, `log(...)`, `ui`, `Canvas`, `screen` | utilities |
 
 ## Events (`onEvent`)

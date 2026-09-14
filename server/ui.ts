@@ -86,6 +86,6 @@ export function headerBody(header: string, body: string, { headerHeight = 36, bo
   ]
 }
 
-export function clock(date = new Date(), { seconds = false, hour12 = false } = {}): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}), hour12 })
+export function clock(date = new Date(), { seconds = false, hour12 = false, tz = undefined as string | undefined, locale = undefined as string | undefined } = {}): string {
+  return date.toLocaleTimeString(locale || [], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}), hour12, timeZone: tz })
 }

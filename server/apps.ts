@@ -36,6 +36,8 @@ export interface AppHost {
   storageSet(key: string, value: string): Promise<boolean>
   device(): DeviceInfo | null
   user(): UserInfo | null
+  tz(): string
+  locale(): string
   connected(): boolean
 }
 
@@ -308,6 +310,8 @@ export class AppRegistry extends EventEmitter {
       storage: { get: (k) => host.storageGet(k), set: (k, v) => host.storageSet(k, v) },
       get device() { return host.device() },
       get user() { return host.user() },
+      get tz() { return host.tz() },
+      get locale() { return host.locale() },
       get connected() { return host.connected() },
       fetch: (...a) => fetch(...a),
     }

@@ -128,6 +128,7 @@ async function sendHello() {
     t: 'hello',
     token: profile.token,
     client: { version: CLIENT_VERSION, sdk: '0.0.15' },
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone, locale: navigator.language,
     device: device as any, user: user as any, launchSource, pageCreated,
   })
 }

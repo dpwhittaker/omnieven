@@ -65,6 +65,8 @@ export class Shell extends EventEmitter {
       storageSet: (key, value) => this.first('storage.set', { key, value }) as Promise<boolean>,
       device: () => [...this.connections].map((c) => c.device).find(Boolean) || null,
       user: () => [...this.connections].map((c) => c.user).find(Boolean) || null,
+      tz: () => [...this.connections].map((c) => c.tz).find(Boolean) || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      locale: () => [...this.connections].map((c) => c.locale).find(Boolean) || Intl.DateTimeFormat().resolvedOptions().locale,
       connected: () => this.connections.size > 0,
     })
     this.registry.on('changed', (id) => {

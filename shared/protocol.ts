@@ -65,6 +65,9 @@ export interface HelloFrame {
   t: 'hello'
   token: string
   client: { version: string; sdk: string }
+  /** phone's IANA time zone (e.g. 'America/New_York') and BCP 47 locale */
+  tz?: string
+  locale?: string
   device: DeviceInfo | null
   user: UserInfo | null
   launchSource: string | null
