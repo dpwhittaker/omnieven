@@ -97,7 +97,7 @@ export class Connection extends EventEmitter {
     while (this.wantView !== null && this.alive) {
       const view = this.wantView
       this.wantView = null
-      const next = compile(view, { forUpgrade: !!this.committed })
+      const next = compile(view)
       const ops = diff(this.committed, next)
       if (!ops.length) continue
       let ok = true

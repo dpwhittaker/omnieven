@@ -70,7 +70,7 @@ function kindOf(c: Container): 'text' | 'list' | 'image' {
 }
 
 /** Canonical view → compiled page + images + text map. */
-export function compile(view: View, { forUpgrade = false } = {}): Compiled {
+export function compile(view: View): Compiled {
   const { containers, menu } = canonicalView(view)
   const textObject: TextObject[] = [], listObject: ListObject[] = [], imageObject: ImageObject[] = []
   const images: CompiledImage[] = []
@@ -141,15 +141,19 @@ export function compile(view: View, { forUpgrade = false } = {}): Compiled {
     } else {
       const tc = c as TextContainer
       const containerName = uniqueName(tc.name, `text${containerID}`)
-      const limit = forUpgrade ? LIMITS.textUpgradeBytes : LIMITS.textPageBytes
-      const content = truncBytes(tc.text ?? '', limit) || ' '
+      // A page build takes ≤999 bytes per container but an in-place upgrade
+      // ≤1999: the page carries the short form and diff() tops it up with an
+      // upgrade when the full text is longer (an overflowing capture container
+      // scrolls natively on the glasses).
+      const full = truncBytes(tc.text ?? '', LIMITS.textUpgradeBytes) || ' '
+      const content = truncBytes(full, LIMITS.textPageBytes) || ' '
       const entry: TextObject = {
         ...geometry(tc), ...decoration(tc), containerID, containerName, zOrderIndex: containerID,
         isEventCapture: capture, content,
       }
       if (tc.textColor != null) entry.textColor = clamp(tc.textColor, 0, 4)
       textObject.push(entry)
-      texts.set(containerID, { containerName, content, textColor: entry.textColor })
+      texts.set(containerID, { containerName, content: full, textColor: entry.textColor })
     }
   }
 
@@ -200,6 +204,10 @@ export function diff(committed: Compiled | null, next: Compiled): Op[] {
   if (!committed || committed.structureKey !== next.structureKey) {
     ops.push({ op: 'page', args: next.page })
     for (const im of next.images) ops.push({ op: 'image', args: { containerID: im.containerID, containerName: im.containerName, png: im.png } })
+    for (const t of next.page.textObject) {
+      const full = next.texts.get(t.containerID)
+      if (full && full.content !== t.content) ops.push({ op: 'text', args: { containerID: t.containerID, containerName: t.containerName, content: full.content, ...(full.textColor != null ? { textColor: full.textColor } : {}) } })
+    }
     return ops
   }
   for (const [cid, t] of next.texts) {

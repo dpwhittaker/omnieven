@@ -95,9 +95,18 @@ Containers (`x, y, w, h` in px on the 576×288 canvas, origin top-left):
 ```
 
 Firmware limits (the renderer clamps and truncates): 12 containers, of which ≤8 text/list and
-≤4 image; text ≤1000 chars on a layout change (≤2000 for an in-place update); one font, no size
-control, left-aligned, 27 px per line, ~450 chars fill the screen; `\n` breaks lines; the
-input-capturing text container scrolls natively when it overflows.
+≤4 image; text ≤999 bytes per container on a page build and ≤1999 in place — give a container
+more and the renderer builds the page with the first 999 bytes then tops it up with an upgrade,
+so you can simply hand it ~1.9 KB; one font, no size control, left-aligned, 27 px per line,
+~450 chars fill the screen; `\n` breaks lines.
+
+**Native scrolling:** when the input-capturing text container holds more than fits, the glasses
+scroll it themselves (smoothly, like the built-in News app) and the app only hears about the
+edges: `up` = the reader hit the top, `down` = the bottom (they are *boundary* events, not
+swipes). Swap in the next block on `down`, overlapping by a screen so nothing is skipped —
+`demo/reading/royalroad.js` ("smooth" mode) does exactly this. Ignore boundary events for
+~0.5 s after a swap; the re-layout can emit spurious ones. If the text fits, every swipe
+arrives as `up`/`down` instead and you page manually.
 
 **What costs what:** if only text *content* changes between renders, the server sends an
 in-place update (fast, no flicker). Any change to geometry, list items, images or the menu

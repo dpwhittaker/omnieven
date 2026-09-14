@@ -3,8 +3,10 @@
 //   library → tap a fiction → resumes where you left off (web or glasses)
 //   'Scrolling' setting:
 //     by step — text box; tap: next page · swipe down / up: move by the 'Scroll step' (page … 1 line)
-//     smooth  — the firmware's own list scrolling (like menus): 20 lines at a time scroll natively;
-//               tap a line to continue reading from it (the next 20 lines), menu: back a screen
+//     smooth  — native scrolling: the text box holds ~2 KB of the chapter (more than fits) and the
+//               glasses scroll it themselves, as smoothly as the News app; when the reader hits
+//               the bottom/top edge the firmware sends a boundary event and the next/previous block
+//               loads (overlapping by a screen so nothing is skipped). Tap = a page forward.
 //   double-tap: back to the library
 //   menu: Next chapter · Previous chapter · Chapters… · Library
 //   settings: lines per page, reading-area width, horizontal/vertical placement of
@@ -17,12 +19,14 @@
 /** @typedef {{ text: string, para: number }} Line */
 /** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean, step: 'page'|'half'|'3'|'2'|'1', scrolling: 'step'|'smooth' }} State */
 /** @typedef {{ screen: 'library'|'reader'|'chapters', fictions: Fiction[], fiction: Fiction | null, chapter: Chapter | null,
- *   lines: Line[], top: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
+ *   lines: Line[], top: number, swappedAt: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
  *   chapterWindow: number, saveTimer: any }} Mem */
 
 const W = 576, H = 288, HEADER = 34, PAD = 4, LINE = 27
-/** list items are capped by the firmware (bytes) and per list (rows) */
-const ITEM_BYTES = 63, LIST_ROWS = 20
+/** bytes of chapter text per block in smooth mode (a text upgrade may carry 1999) */
+const BLOCK_BYTES = 1900
+/** boundary events that arrive right after a block swap are the firmware re-laying out */
+const SWAP_SETTLE_MS = 500
 
 /**
  * Where the reading area sits on the screen, from the settings: width and
@@ -65,38 +69,27 @@ async function api(ctx, path, init = {}) {
  */
 function flow(ctx, paragraphs) {
   const { textWidth } = layout(ctx)
-  const smooth = ctx.state.scrolling === 'smooth'
   /** @type {Line[]} */ const lines = []
   paragraphs.forEach((p, para) => {
     if (lines.length) lines.push({ text: '', para })
-    for (const text of smooth ? wrapItems(ctx, p, textWidth) : ctx.ui.wrap(p, textWidth)) lines.push({ text, para })
+    for (const text of ctx.ui.wrap(p, textWidth)) lines.push({ text, para })
   })
   return lines.length ? lines : [{ text: '(empty chapter)', para: 0 }]
 }
 
 /**
- * Word-wrap for list rows: each line must fit the width *and* stay within the
- * firmware's 63-byte item limit (curly quotes are 3 bytes each).
- * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {string} text @param {number} widthPx
+ * Smooth mode: the block of lines from `start` that fits BLOCK_BYTES.
+ * @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx @param {number} start
  */
-function wrapItems(ctx, text, widthPx) {
-  const bytes = (/** @type {string} */ t) => Buffer.byteLength(t, 'utf8')
-  const fits = (/** @type {string} */ t) => bytes(t) <= ITEM_BYTES && ctx.ui.wrap(t, widthPx).length === 1
-  /** @type {string[]} */ const out = []
-  let line = ''
-  for (const w of text.split(/\s+/).filter(Boolean)) {
-    const cand = line ? `${line} ${w}` : w
-    if (fits(cand)) { line = cand; continue }
-    if (line) out.push(line)
-    line = w
-    while (!fits(line)) {   // a single over-long word: hard-break it
-      let cut = line.length - 1
-      while (cut > 1 && !fits(line.slice(0, cut))) cut--
-      out.push(line.slice(0, cut)); line = line.slice(cut)
-    }
+function block(ctx, start) {
+  const m = ctx.mem
+  let bytes = 0, end = start
+  for (; end < m.lines.length; end++) {
+    const b = Buffer.byteLength(m.lines[end].text, 'utf8') + 1
+    if (bytes + b > BLOCK_BYTES && end > start) break
+    bytes += b
   }
-  if (line) out.push(line)
-  return out
+  return { text: m.lines.slice(start, end).map((l) => l.text).join('\n'), end }
 }
 
 /** Lines the reading box shows at once. @param {import('../../shared/app.ts').AppContext<State, Mem>} ctx */
@@ -200,7 +193,7 @@ const SETTINGS = [
   { key: 'width', label: 'Reading width', options: [[576, 'full'], [480, 'wide'], [384, 'two thirds'], [288, 'half'], [192, 'third']].map(([v, l]) => ({ value: v, label: `${l} (${v}px)` })) },
   { key: 'halign', label: 'Horizontal position', options: ['left', 'center', 'right'].map((v) => ({ value: v, label: v })) },
   { key: 'valign', label: 'Vertical position', options: ['top', 'center', 'bottom'].map((v) => ({ value: v, label: v })) },
-  { key: 'scrolling', label: 'Scrolling', options: [{ value: 'step', label: 'by step (swipe moves the text)' }, { value: 'smooth', label: 'smooth (native list scrolling)' }] },
+  { key: 'scrolling', label: 'Scrolling', options: [{ value: 'step', label: 'by step (swipe moves the text)' }, { value: 'smooth', label: 'smooth (glasses scroll the text)' }] },
   { key: 'step', label: 'Scroll step (swipes)', options: [['page', 'a page'], ['half', 'half a page'], ['3', '3 lines'], ['2', '2 lines'], ['1', '1 line']].map(([v, l]) => ({ value: v, label: l })) },
   { key: 'header', label: 'Header line', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
   { key: 'brightness', label: 'Text brightness', options: [1, 2, 3, 4].map((v) => ({ value: v, label: ['', 'dim', 'medium', 'bright', 'brightest'][v] })) },
@@ -237,6 +230,7 @@ export default {
     ctx.mem.cache ??= {}
     ctx.mem.lines ??= []
     ctx.mem.top ??= 0
+    ctx.mem.swappedAt ??= 0
     ctx.mem.chapterList ??= []
     ctx.mem.loading = ''; ctx.mem.error = ''
     ctx.mem.chapterWindow = 0
@@ -265,23 +259,20 @@ export default {
     if (m.screen === 'reader' && m.chapter && m.fiction) {
       const smooth = s.scrolling === 'smooth'
       const box = layout(ctx)
-      const end = Math.min(m.lines.length, m.top + (smooth ? LIST_ROWS : box.lines))
+      const blk = smooth ? block(ctx, m.top) : null
+      const end = blk ? blk.end : Math.min(m.lines.length, m.top + box.lines)
       const last = smooth ? end >= m.lines.length : m.top >= maxTop(ctx)
       const pct = `${Math.round((end / m.lines.length) * 100)}%`
-      const hint = last ? (m.chapter.next ? (smooth ? `${pct} · tap last line: next chapter` : 'tap: next chapter') : 'the end (so far)') : smooth ? `${pct} · tap a line to continue` : pct
+      const hint = last ? (m.chapter.next ? (smooth ? `${pct} · scroll on: next chapter` : 'tap: next chapter') : 'the end (so far)') : pct
       /** @type {import('../../shared/view.ts').Container} */
-      let body
-      if (smooth) {
-        // a native list: the firmware scrolls these rows itself; blank rows keep paragraph gaps
-        const items = m.lines.slice(m.top, m.top + LIST_ROWS).map((l) => l.text || ' ')
-        body = { type: 'list', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, selectBorder: false, items }
-      } else body = { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness, text: m.lines.slice(m.top, end).map((l) => l.text).join('\n') }
+      const body = { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness,
+        text: blk ? blk.text : m.lines.slice(m.top, end).map((l) => l.text).join('\n') }
       return {
         containers: [
           ...(s.header ? [header(`${ctx.ui.fit(m.chapter.title, 330)}  ·  ch ${m.chapter.ord + 1}/${m.chapter.total}  ·  ${hint}`)] : []),
           body,
         ],
-        menu: [...(smooth ? [{ id: 'backscreen', label: 'Back a screen' }] : []), { id: 'next', label: 'Next chapter' }, { id: 'prev', label: 'Previous chapter' }, { id: 'chapters', label: 'Chapters…' }, { id: 'library', label: 'Library' }],
+        menu: [{ id: 'next', label: 'Next chapter' }, { id: 'prev', label: 'Previous chapter' }, { id: 'chapters', label: 'Chapters…' }, { id: 'library', label: 'Library' }],
       }
     }
     if (!m.fictions.length) return 'RoyalRoad\n\nYour library is empty.\nAdd favorites on RoyalRoad, then sync on the reader site.\n\ntap: reload'
@@ -316,19 +307,24 @@ export default {
     if (!m.chapter) return
     if (ev.type === 'double') { m.screen = 'library'; void loadLibrary(ctx); return true }
     if (ctx.state.scrolling === 'smooth') {
-      // the firmware scrolls the rows; a tap on a row continues from it (that row becomes the first)
-      if (ev.type === 'select' || ev.type === 'tap') {
-        const i = ev.type === 'select' ? ev.index : 0
-        const shown = Math.min(LIST_ROWS, m.lines.length - m.top)
-        const last = m.top + shown >= m.lines.length
-        if (last && (i >= shown - 1 || shown <= 1)) { if (m.chapter.next) void openChapter(ctx, m.chapter.next, 0).then(() => savePosition(ctx)); return true }
-        // row 0 (or a plain tap) = a screenful; otherwise the tapped row
-        const delta = i > 0 ? i : Math.max(1, layout(ctx).lines - 1)
-        m.top = Math.min(m.top + delta, Math.max(0, m.lines.length - 1))
-        if (m.lines[m.top]?.text === '' && m.top < m.lines.length - 1) m.top++   // don't start on a paragraph gap
-        savePosition(ctx); ctx.render(); return true
-      }
-      return true   // swipes are handled by the firmware
+      // The glasses scroll the block themselves; 'down'/'up' here are the
+      // bottom/top boundary events. Swap blocks so the screen the reader was
+      // looking at stays in view (the new block starts one screen before the
+      // old one ended), i.e. nothing is skipped.
+      const page = pageLines(ctx)
+      const now = Date.now()
+      if ((ev.type === 'down' || ev.type === 'up') && now - (m.swappedAt || 0) < SWAP_SETTLE_MS) return true
+      const { end } = block(ctx, m.top)
+      if (ev.type === 'down' || ev.type === 'tap') {
+        if (end >= m.lines.length) { if (m.chapter.next) void openChapter(ctx, m.chapter.next, 0).then(() => savePosition(ctx)); return true }
+        m.top = ev.type === 'tap' ? Math.min(m.top + page, m.lines.length - 1) : Math.max(m.top + 1, end - page)
+      } else if (ev.type === 'up') {
+        if (m.top === 0) { if (m.chapter.prev) void openChapter(ctx, m.chapter.prev, Number.MAX_SAFE_INTEGER).then(() => savePosition(ctx)); return true }
+        m.top = Math.max(0, m.top - page)
+      } else return
+      if (m.lines[m.top]?.text === '' && m.top < m.lines.length - 1) m.top++   // don't start on a paragraph gap
+      m.swappedAt = now
+      savePosition(ctx); ctx.render(); return true
     }
     if (ev.type === 'tap' || ev.type === 'down') {
       // tap = a page, swipe = the configured step; past the end → next chapter
@@ -351,7 +347,6 @@ export default {
     if (id === 'next' && m.chapter.next) return void openChapter(ctx, m.chapter.next, 0).then(() => savePosition(ctx))
     if (id === 'prev' && m.chapter.prev) return void openChapter(ctx, m.chapter.prev, 0).then(() => savePosition(ctx))
     if (id === 'back') { m.screen = 'reader'; return ctx.render() }
-    if (id === 'backscreen') { m.top = Math.max(0, m.top - Math.max(1, layout(ctx).lines - 1)); savePosition(ctx); return ctx.render() }
     if (id === 'earlier') { m.chapterWindow -= 20; return ctx.render() }
     if (id === 'later') { m.chapterWindow += 20; return ctx.render() }
     if (id === 'chapters' && m.fiction) {
