@@ -93,9 +93,7 @@ screens rendered by the shell, reachable from the tap-and-hold menu. Demo apps (
 Clock (full screen / corner / big digits, brightness, fade-away, wake when looking up or down
 via IMU — all from its settings), Stopwatch, System monitor (image sparkline), Hacker News
 (article text + comments), Notes (inbox with webhook + JSON API), Voice memo (TypeScript,
-glasses mic → WAV, play/download from the phone), RoyalRoad (reads your library from the
-companion [royalroad](https://github.com/lettucegoblin/royalroad) service, position shared
-with its web reader).
+glasses mic → WAV, play/download from the phone).
 
 **The phone app is a companion too.** Its *Apps* tab lists your apps (open on the glasses,
 open their settings) and shows each app's own phone page (`phone` hook) — e.g. the voice
@@ -121,6 +119,7 @@ All routes take `Authorization: Bearer <token>` (or `?token=`).
 | `GET /api/status` | connections, active app, apps, last event |
 | `GET /api/screen` | text dump + container layout of what is on the glasses right now |
 | `GET /api/events` | SSE stream: gestures, renders, navigation, config, logs, location |
+| `GET /files/<name>?token=…` | download anything in `data/files/` (screenshots, exports) |
 | `GET /api/logs` | recent server log (includes the phone client's console) |
 | `POST /api/notify {text, title?, ms?}` | toast |
 | `POST /api/show {view}` | show an ad-hoc view (any `render()` return value) until the user navigates |

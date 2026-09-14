@@ -94,6 +94,9 @@ Containers (`x, y, w, h` in px on the 576×288 canvas, origin top-left):
 { type: 'image', name: 'graph', x, y, w: 20..288, h: 20..144, png: <Buffer | base64 | ctx.Canvas> }
 ```
 
+A one-line text container needs `27 + 2 × padding` px of height (35 with the default padding
+of 4) — one pixel short and the firmware shows a scrollbar.
+
 Firmware limits (the renderer clamps and truncates): 12 containers, of which ≤8 text/list and
 ≤4 image; text ≤999 bytes per container on a page build and ≤1999 in place — give a container
 more and the renderer builds the page with the first 999 bytes then tops it up with an upgrade,
@@ -103,8 +106,8 @@ so you can simply hand it ~1.9 KB; one font, no size control, left-aligned, 27 p
 **Native scrolling:** when the input-capturing text container holds more than fits, the glasses
 scroll it themselves (smoothly, like the built-in News app) and the app only hears about the
 edges: `up` = the reader hit the top, `down` = the bottom (they are *boundary* events, not
-swipes). Swap in the next block on `down`, overlapping by a screen so nothing is skipped —
-`demo/reading/royalroad.js` ("smooth" mode) does exactly this. Ignore boundary events for
+swipes). Swap in the next block on `down`, overlapping by a screen so nothing is skipped
+(a ~1.9 KB block is 3–4 screens; keep the reader's paragraph to save position). Ignore boundary events for
 ~0.5 s after a swap; the re-layout can emit spurious ones. If the text fits, every swipe
 arrives as `up`/`down` instead and you page manually.
 

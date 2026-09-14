@@ -8,7 +8,7 @@ const API = 'https://hacker-news.firebaseio.com/v0'
 const REFRESH_MS = 5 * 60 * 1000
 const STORIES = 20
 const COMMENTS = 12
-const PAGE_LINES = 8          // 34 px header + 8 × 27 px lines fits 288 px
+const PAGE_LINES = 8          // 36 px header + 8 × 27 px lines fits 288 px
 
 /** @typedef {{ id: number, title: string, score: number, by: string, url?: string, text?: string, descendants?: number, kids?: number[] }} Story */
 /** @typedef {{ by?: string, text?: string, deleted?: boolean, dead?: boolean }} Comment */
@@ -213,9 +213,9 @@ export default {
     const age = m.fetchedAt ? `${Math.round((Date.now() - m.fetchedAt) / 60000)} min ago` : ''
     return {
       containers: [
-        { type: 'text', name: 'header', x: 0, y: 0, w: 576, h: 34, padding: 4, textColor: 2,
+        { type: 'text', name: 'header', x: 0, y: 0, w: 576, h: 36, padding: 4, textColor: 2,
           text: ctx.ui.spread('Hacker News  ·  tap to read', m.loading ? 'refreshing…' : age) },
-        { type: 'list', name: 'stories', x: 0, y: 34, w: 576, h: 254, capture: true,
+        { type: 'list', name: 'stories', x: 0, y: 36, w: 576, h: 252, capture: true,
           items: m.stories.map((st) => ctx.ui.fit(`${st.score} ${st.title}`, 540)) },
       ],
     }

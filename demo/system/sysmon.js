@@ -42,10 +42,10 @@ export default {
     return {
       containers: [
         { type: 'text', name: 'stats', x: 0, y: 0, w: 290, h: 288, padding: 6, capture: true, text: [
-          os.hostname(),
+          ctx.env.SYSMON_NAME || os.hostname(),   // SYSMON_NAME in .env to show another label
           '',
-          `cpu  ${ctx.ui.bar(cpu, 14)} ${String(Math.round(cpu * 100)).padStart(3)}%`,
-          `mem  ${ctx.ui.bar(mem, 14)} ${String(Math.round(mem * 100)).padStart(3)}%`,
+          `cpu  ${ctx.ui.bar(cpu, 8)} ${String(Math.round(cpu * 100)).padStart(3)}%`,
+          `mem  ${ctx.ui.bar(mem, 8)} ${String(Math.round(mem * 100)).padStart(3)}%`,
           `load ${l1.toFixed(2)}  ${l5.toFixed(2)}  ${l15.toFixed(2)}`,
           `up   ${Math.floor(up / 86400)}d ${Math.floor((up % 86400) / 3600)}h ${Math.floor((up % 3600) / 60)}m`,
           `cores ${os.cpus().length}  ·  ${(os.totalmem() / 2 ** 30).toFixed(1)} GB`,

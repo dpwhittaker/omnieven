@@ -2,12 +2,12 @@
 import { createServer } from 'node:http'
 import { register } from 'node:module'
 import { createReadStream, existsSync, statSync } from 'node:fs'
-import { extname, join, normalize } from 'node:path'
+import { extname, join, normalize, resolve, sep } from 'node:path'
 import { WebSocketServer } from 'ws'
 import qrcodeTerminal from 'qrcode-terminal'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ClientFrame } from '../shared/protocol.ts'
-import { APPS_DIR, CLIENT_DIST, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.ts'
+import { APPS_DIR, CLIENT_DIST, DATA_DIR, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.ts'
 import { Connection } from './connection.ts'
 import { Shell } from './shell.ts'
 import { handleApi, sendJson } from './api.ts'
@@ -63,6 +63,15 @@ const server = createServer(async (req, res) => {
       if (!existsSync(f)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not packed yet: run `npm run pack`'); return }
       res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="omni.ehpk"', 'Content-Length': statSync(f).size })
       createReadStream(f).pipe(res); return
+    }
+    // Token-gated downloads of anything dropped into data/files/ (screenshots, exports…)
+    if (p.startsWith('/files/')) {
+      if (tokenOf(req, url) !== TOKEN) { res.writeHead(401, { 'Content-Type': 'text/plain' }); res.end('unauthorized'); return }
+      const rel = decodeURIComponent(p.slice('/files/'.length))
+      const dir = join(DATA_DIR, 'files')
+      const file = resolve(dir, rel)
+      if (!file.startsWith(dir + sep) || !serveStatic(res, file)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found') }
+      return
     }
     if (await handleApi(req, res, url, shell)) return
     res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found')

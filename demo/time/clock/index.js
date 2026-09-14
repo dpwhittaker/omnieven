@@ -132,7 +132,7 @@ export default {
       canvas.digits(1, 1, time, [40, 90, 140, 200, 255][s.brightness] ?? 255, scale)
       const { x, y } = anchor(s.position, w, h + (dateLine ? 30 : 0))
       containers.push({ type: 'image', name: 'time', x, y, w, h, png: canvas })
-      if (dateLine) containers.push({ type: 'text', name: 'date', x, y: y + h, w: Math.max(w, 200), h: 30, padding: 2, textColor: s.brightness, text: dateLine })
+      if (dateLine) containers.push({ type: 'text', name: 'date', x, y: y + h, w: Math.max(w, 200), h: 31, padding: 2, textColor: s.brightness, text: dateLine })
     } else {
       const w = Math.min(W, Math.max(ctx.ui.getTextWidth(time), ctx.ui.getTextWidth(dateLine)) + 12)
       const h = dateLine ? 62 : 34

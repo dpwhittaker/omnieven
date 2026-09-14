@@ -322,9 +322,9 @@ export class Shell extends EventEmitter {
     const where = this.homePath.length ? this.homePath.join(' / ') : 'Omni'
     return {
       containers: [
-        { type: 'text', name: 'header', x: 0, y: 0, w: SCREEN.width, h: 34, padding: 4, textColor: 2,
+        { type: 'text', name: 'header', x: 0, y: 0, w: SCREEN.width, h: 36, padding: 4, textColor: 2,
           text: `${where}  ·  ${total} app${total === 1 ? '' : 's'}  ·  tap to open` },
-        { type: 'list', name: 'apps', x: 0, y: 34, w: SCREEN.width, h: SCREEN.height - 34, items, capture: true },
+        { type: 'list', name: 'apps', x: 0, y: 36, w: SCREEN.width, h: SCREEN.height - 36, items, capture: true },
       ],
       menu: [
         ...(this.homePath.length ? [{ id: MENU.HOME, label: 'Top level' }] : []),
@@ -387,8 +387,8 @@ export class Shell extends EventEmitter {
   appSettingsView(app: LoadedApp, schema: AppSetting[]): View {
     const st = this.appSettings!
     const state = app.state
-    const header = (t: string) => ({ type: 'text' as const, name: 'header', x: 0, y: 0, w: SCREEN.width, h: 34, padding: 4, textColor: 2, text: t })
-    const list = (items: string[]) => ({ type: 'list' as const, name: 'list', x: 0, y: 34, w: SCREEN.width, h: SCREEN.height - 34, items, capture: true })
+    const header = (t: string) => ({ type: 'text' as const, name: 'header', x: 0, y: 0, w: SCREEN.width, h: 36, padding: 4, textColor: 2, text: t })
+    const list = (items: string[]) => ({ type: 'list' as const, name: 'list', x: 0, y: 36, w: SCREEN.width, h: SCREEN.height - 36, items, capture: true })
     if (st.screen === 'option') {
       const sdef = schema[st.index]
       if (sdef && 'options' in sdef) {

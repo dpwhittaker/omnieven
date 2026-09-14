@@ -44,8 +44,8 @@ export default {
     if (!notes.length) return 'Notes\n\nNothing here yet.\n\nPOST /api/apps/notes/message {"text": "..."}'
     return {
       containers: [
-        { type: 'text', name: 'header', x: 0, y: 0, w: 576, h: 34, padding: 4, textColor: 2, text: `Notes  ·  ${notes.length}` },
-        { type: 'list', name: 'notes', x: 0, y: 34, w: 576, h: 254, capture: true,
+        { type: 'text', name: 'header', x: 0, y: 0, w: 576, h: 36, padding: 4, textColor: 2, text: `Notes  ·  ${notes.length}` },
+        { type: 'list', name: 'notes', x: 0, y: 36, w: 576, h: 252, capture: true,
           items: notes.map((n) => ctx.ui.fit(n.text.split('\n')[0], 540)) },
       ],
     }

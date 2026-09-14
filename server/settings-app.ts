@@ -43,8 +43,8 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
     render(ctx) {
       const m = ctx.mem
       const cfg = host.config()
-      const header = (t: string) => ({ type: 'text' as const, name: 'header', x: 0, y: 0, w: 576, h: 34, padding: 4, textColor: 2, text: t })
-      const list = (items: string[]) => ({ type: 'list' as const, name: 'list', x: 0, y: 34, w: 576, h: 254, items, capture: true })
+      const header = (t: string) => ({ type: 'text' as const, name: 'header', x: 0, y: 0, w: 576, h: 36, padding: 4, textColor: 2, text: t })
+      const list = (items: string[]) => ({ type: 'list' as const, name: 'list', x: 0, y: 36, w: 576, h: 252, items, capture: true })
       switch (m.level) {
         case 'scopes':
           return { containers: [header('Settings  ·  tap: open  ·  double-tap: close'), list([

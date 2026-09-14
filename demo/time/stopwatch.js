@@ -32,7 +32,7 @@ export default {
     const laps = ctx.state.laps.slice(-5).map((l, i) => `lap ${total - Math.min(5, total) + i + 1}  ${fmt(l)}`).join('\n')
     return {
       containers: [
-        { type: 'text', name: 'big', x: 0, y: 20, w: 300, h: 80, padding: 8, text: `⏱  ${fmt(elapsed(ctx))}`, capture: true,
+        { type: 'text', name: 'big', x: 0, y: 20, w: 300, h: 80, padding: 8, text: fmt(elapsed(ctx)), capture: true,
           border: { width: running ? 2 : 0, color: 12, radius: 8 } },
         { type: 'text', name: 'laps', x: 310, y: 20, w: 266, h: 200, padding: 8, textColor: 2, text: laps || 'no laps' },
         { type: 'text', name: 'hint', x: 0, y: 240, w: 576, h: 48, padding: 8, textColor: 1,
