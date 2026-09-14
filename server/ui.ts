@@ -60,6 +60,25 @@ export function bar(fraction: number, cells = 20, fill = '━', empty = '─'): 
   return fill.repeat(n) + empty.repeat(cells - n)
 }
 
+/** Rendered width of a single line of text in px. */
+export function width(text: string | number): number { return getTextWidth(String(text ?? '')) }
+
+/**
+ * Pad a single line with leading spaces so it sits centred or at the right
+ * edge of `widthPx` (the firmware only left-aligns). Text wider than the box
+ * is cut with an ellipsis.
+ */
+export function align(text: string | number, widthPx: number, how: 'left' | 'center' | 'right'): string {
+  const t = pxTruncate(String(text ?? ''), widthPx)
+  if (how === 'left') return t
+  const space = getTextWidth(' ') || 6
+  const gap = widthPx - getTextWidth(t)
+  let n = Math.max(0, Math.floor((how === 'right' ? gap : gap / 2) / space))
+  // advances don't add up exactly; never let the padded line exceed the box
+  while (n > 0 && getTextWidth(' '.repeat(n) + t) > widthPx) n--
+  return ' '.repeat(n) + t
+}
+
 /** Two-column line: left text, right text pushed to `widthPx` using spaces. */
 export function spread(left: string | number, right: string | number, widthPx = SCREEN.width - 8): string {
   left = String(left ?? ''); right = String(right ?? '')

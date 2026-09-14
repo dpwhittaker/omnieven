@@ -124,7 +124,8 @@ Helpers on `ctx.ui`:
 - `rows([t1, t2, t3], { capture: 0 })` — equal-height stacked text containers
 - `headerBody(header, body)` — dim one-line header + scrolling body
 - `wrap(text, widthPx)`, `paginate(text)`, `fit(text, widthPx)`, `measure(text, widthPx)` — firmware-accurate metrics
-- `bar(fraction, cells)` — `━━━───` progress bar; `spread(left, right)` — two-column line
+- `bar(fraction, cells)` — `━━━───` progress bar; `spread(left, right)` — two-column line;
+  `align(text, widthPx, 'center'|'right')` — pad with spaces (the firmware only left-aligns); `width(text)` — px
 - `clock(date)`, `LINE` (27), `linesFor(heightPx)`
 
 ## App settings (declarative)

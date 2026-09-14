@@ -17,12 +17,12 @@
 /** @typedef {{ id: number, title: string, author: string, chapters: number, downloaded: number, position: { chapter_id: number, paragraph: number, ord: number, title: string } | null }} Fiction */
 /** @typedef {{ id: number, fictionId: number, ord: number, total: number, title: string, paragraphs: string[], prev: number | null, next: number | null }} Chapter */
 /** @typedef {{ text: string, para: number }} Line */
-/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean, step: 'page'|'half'|'3'|'2'|'1', scrolling: 'step'|'smooth' }} State */
+/** @typedef {{ lines: number, brightness: number, width: number, halign: 'left'|'center'|'right', valign: 'top'|'center'|'bottom', header: boolean, headerAlign: 'left'|'center'|'right', headerTitle: boolean, headerChapter: boolean, headerProgress: boolean, step: 'page'|'half'|'3'|'2'|'1', scrolling: 'step'|'smooth' }} State */
 /** @typedef {{ screen: 'library'|'reader'|'chapters', fictions: Fiction[], fiction: Fiction | null, chapter: Chapter | null,
  *   lines: Line[], top: number, swappedAt: number, loading: string, error: string, cache: Record<number, Chapter>, chapterList: { id: number, ord: number, title: string }[],
  *   chapterWindow: number, saveTimer: any }} Mem */
 
-const W = 576, H = 288, HEADER = 34, PAD = 4, LINE = 27
+const W = 576, H = 288, PAD = 4, LINE = 27, HEADER = LINE + 2 * PAD
 /** bytes of chapter text per block in smooth mode (a text upgrade may carry 1999) */
 const BLOCK_BYTES = 1900
 /** boundary events that arrive right after a block swap are the firmware re-laying out */
@@ -196,6 +196,10 @@ const SETTINGS = [
   { key: 'scrolling', label: 'Scrolling', options: [{ value: 'step', label: 'by step (swipe moves the text)' }, { value: 'smooth', label: 'smooth (glasses scroll the text)' }] },
   { key: 'step', label: 'Scroll step (swipes)', options: [['page', 'a page'], ['half', 'half a page'], ['3', '3 lines'], ['2', '2 lines'], ['1', '1 line']].map(([v, l]) => ({ value: v, label: l })) },
   { key: 'header', label: 'Header line', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
+  { key: 'headerAlign', label: 'Header alignment', options: ['left', 'center', 'right'].map((v) => ({ value: v, label: v })) },
+  { key: 'headerTitle', label: 'Header: chapter title', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
+  { key: 'headerChapter', label: 'Header: chapter number', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
+  { key: 'headerProgress', label: 'Header: progress', options: [{ value: true, label: 'show' }, { value: false, label: 'hide' }] },
   { key: 'brightness', label: 'Text brightness', options: [1, 2, 3, 4].map((v) => ({ value: v, label: ['', 'dim', 'medium', 'bright', 'brightest'][v] })) },
 ]
 
@@ -222,6 +226,10 @@ export default {
     ctx.state.halign ??= 'left'
     ctx.state.valign ??= 'top'
     ctx.state.header ??= true
+    ctx.state.headerAlign ??= 'right'
+    ctx.state.headerTitle ??= true
+    ctx.state.headerChapter ??= true
+    ctx.state.headerProgress ??= true
     ctx.state.step ??= 'page'
     ctx.state.scrolling ??= 'step'
     delete (/** @type {any} */ (ctx.state)).dimOld
@@ -243,7 +251,8 @@ export default {
 
   render(ctx) {
     const m = ctx.mem, s = ctx.state
-    const header = (/** @type {string} */ t) => ({ type: /** @type {const} */ ('text'), name: 'header', x: 0, y: 0, w: W, h: HEADER, padding: PAD, textColor: 2, text: t })
+    // one line, cut to the width so it never wraps (a wrapped header overflows and grows a scrollbar)
+    const header = (/** @type {string} */ t) => ({ type: /** @type {const} */ ('text'), name: 'header', x: 0, y: 0, w: W, h: HEADER, padding: PAD, textColor: 2, text: ctx.ui.fit(t, W - 2 * PAD - 8) })
     if (m.error) return { text: `RoyalRoad\n\n${m.error}\n\ntap: retry  ·  double-tap: back` }
     if (m.loading) return { text: m.loading === 'library' ? 'Loading library…' : `${m.fiction?.title ?? ''}\n\nloading chapter…` }
     if (m.screen === 'chapters' && m.fiction) {
@@ -267,9 +276,13 @@ export default {
       /** @type {import('../../shared/view.ts').Container} */
       const body = { type: 'text', name: 'body', x: box.x, y: box.y, w: box.w, h: box.h, padding: PAD, capture: true, textColor: s.brightness,
         text: blk ? blk.text : m.lines.slice(m.top, end).map((l) => l.text).join('\n') }
+      // header: the parts the user wants, aligned with spaces (the firmware only left-aligns)
+      const parts = [s.headerTitle ? ctx.ui.fit(m.chapter.title, 330) : '', s.headerChapter ? `ch ${m.chapter.ord + 1}/${m.chapter.total}` : '', s.headerProgress ? hint : ''].filter(Boolean)
+      const line = parts.join('  ·  ')
+      const headerText = ctx.ui.align(line, W - 2 * PAD - 8, s.headerAlign)
       return {
         containers: [
-          ...(s.header ? [header(`${ctx.ui.fit(m.chapter.title, 330)}  ·  ch ${m.chapter.ord + 1}/${m.chapter.total}  ·  ${hint}`)] : []),
+          ...(s.header ? [header(headerText)] : []),
           body,
         ],
         menu: [{ id: 'next', label: 'Next chapter' }, { id: 'prev', label: 'Previous chapter' }, { id: 'chapters', label: 'Chapters…' }, { id: 'library', label: 'Library' }],
