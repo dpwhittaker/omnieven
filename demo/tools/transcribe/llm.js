@@ -1,6 +1,7 @@
 // Small LLM adapter. Routing by tier:
 //   fast  (cues)      GEMINI_API_KEY → Gemini Flash-Lite (~1 s) · else ANTHROPIC_API_KEY → Haiku · else `claude -p --model haiku`
-//   smart (summaries) ANTHROPIC_API_KEY → Sonnet · else the local `claude` CLI (Claude Code headless; ~5–10 s, no key needed)
+//   smart (summaries) ANTHROPIC_API_KEY → Sonnet · else the local `claude` CLI (Claude Code headless; ~5–10 s, no key needed;
+//                     CLAUDE_CLI=/path/to/claude if it is not on the service's PATH)
 
 import { spawn } from 'node:child_process'
 
@@ -44,7 +45,7 @@ export async function ask(host, req) {
     return (j.content || []).map((/** @type {any} */ c) => c.text || '').join('')
   }
   return new Promise((resolve, reject) => {
-    const p = spawn('claude', ['-p', '--model', CLI_MODELS[model], '--output-format', 'text', '--system-prompt', req.system], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CLAUDECODE: '' } })
+    const p = spawn(host.env.CLAUDE_CLI || 'claude', ['-p', '--model', CLI_MODELS[model], '--output-format', 'text', '--system-prompt', req.system], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CLAUDECODE: '' } })
     let out = '', err = ''
     const t = setTimeout(() => { p.kill(); reject(new Error('claude CLI timed out')) }, timeoutMs)
     p.stdout.on('data', (d) => { out += d })

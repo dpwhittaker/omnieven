@@ -351,6 +351,12 @@ export default {
     if (req.path === '/prep' && req.method === 'POST') { const b = /** @type {any} */ (req.body); ctx.state.prep = String(b?.prep ?? '').slice(0, 4000); ctx.save(); ctx.render(); return { ok: true } }
     if (req.path === '/todo' && req.method === 'POST') { const b = /** @type {any} */ (req.body); if (b?.text) void addTodo(ctx, { text: String(b.text), due: b.due }); return { ok: true } }
     if (req.path === '/live') return { screen: ctx.mem.screen, text: transcript(ctx.mem), interim: ctx.mem.interim, cue: ctx.mem.cue }
+    if (req.path === '/resummarize' && req.method === 'POST') {
+      const id = Number(req.query.id || /** @type {any} */ (req.body)?.id)
+      const x = s.get(id)
+      if (!x) return { status: 404, json: { error: 'no such session' } }
+      return summarize(ctx, id, x.transcript, x.prep).then(() => { s.finish(id); const y = s.get(id); return { ok: true, title: y?.title, summary: y?.summary, actions: y?.actions } })
+    }
     if (req.path === '/import' && req.method === 'POST') {
       const b = /** @type {any} */ (req.body)
       const text = typeof b === 'string' ? b : String(b?.text ?? '')
