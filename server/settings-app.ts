@@ -48,6 +48,7 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
       switch (m.level) {
         case 'scopes':
           return { containers: [header('Settings  ·  tap: open  ·  double-tap: close'), list([
+            '← Close settings',
             ...SCOPES.map((s) => `${s.label}  (${s.hint})`),
             `Menu shows other apps:  ${MENU_APPS.find((o) => o.value === cfg.menu.apps)?.label.split(' (')[0]}`,
             `Menu shows Settings item:  ${cfg.menu.settings ? 'yes' : 'no'}`,
@@ -74,11 +75,14 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
       if (ev.type !== 'select') return
       const cfg = host.config()
       switch (m.level) {
-        case 'scopes':
-          if (ev.index < SCOPES.length) { m.scope = SCOPES[ev.index].id; m.level = 'bindings' }
-          else if (ev.index === SCOPES.length) m.level = 'menu-apps'
+        case 'scopes': {
+          const i = ev.index - 1   // row 0 = close
+          if (i < 0) return back(m)
+          if (i < SCOPES.length) { m.scope = SCOPES[i].id; m.level = 'bindings' }
+          else if (i === SCOPES.length) m.level = 'menu-apps'
           else host.setMenu({ settings: !cfg.menu.settings })
           break
+        }
         case 'menu-apps': {
           const o = MENU_APPS[ev.index]
           if (o) host.setMenu({ apps: o.value })
