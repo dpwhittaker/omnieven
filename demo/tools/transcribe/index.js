@@ -110,7 +110,7 @@ async function summarize(ctx, id, text, prep) {
   } catch (err) {
     ctx.log(`summary failed: ${err instanceof Error ? err.message : err}`)
     const started = s.get(id)?.started ?? Date.now()
-    s.update(id, { title: `Session ${new Date(started).toLocaleString(ctx.locale, { timeZone: ctx.tz, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, summary: '(summary failed — transcript saved)' })
+    s.update(id, { title: `Session ${new Date(started).toLocaleString(ctx.locale, { timeZone: ctx.tz, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, summary: '(summary pending or failed — use Re-summarize)' })
   }
 }
 
@@ -149,14 +149,19 @@ async function importConversate(ctx, text, filename = '') {
   const base = segs[0].t
   const transcript = segs.map((x) => x.text).join(' ')
   const s = store(ctx)
+  const dup = s.findDuplicate(started, transcript)
+  if (dup) { ctx.log(`import skipped, already have "${dup.title}" (session ${dup.id})`); return { session: dup, duplicate: true } }
   const id = s.create({ started, prep: '', source: 'conversate', location })
   s.update(id, { ended: started + (segs[segs.length - 1].t - base), transcript, title })
-  await summarize(ctx, id, transcript, '')
-  const after = s.get(id)
-  if (after && (!after.title || after.title === 'Untitled session')) s.update(id, { title })
-  s.finish(id)
+  s.finish(id)   // searchable right away; the summary lands when it's ready
   ctx.log(`imported conversate "${title}" (${segs.length} lines)`)
-  return s.get(id)
+  void summarize(ctx, id, transcript, '').then(() => {
+    const after = s.get(id)
+    if (after && (!after.title || after.title === 'Untitled session')) s.update(id, { title })
+    s.finish(id)
+    if (ctx.active) ctx.render()
+  })
+  return { session: s.get(id), duplicate: false }
 }
 /** Offset of an IANA zone at an instant, in ms (positive east of UTC). @param {string} tz @param {number} atUtcMs */
 function tzOffsetMs(tz, atUtcMs) {
@@ -362,9 +367,10 @@ export default {
       const text = typeof b === 'string' ? b : String(b?.text ?? '')
       const name = req.query.name || (typeof b === 'object' && b ? String(b.name || '') : '')
       if (!text.trim()) return { status: 400, json: { error: 'text required (raw body or {"name","text"})' } }
-      return importConversate(ctx, text, name).then((x) => ({ ok: true, session: x && { id: x.id, title: x.title, started: x.started, summary: x.summary, actions: x.actions } }))
+      return importConversate(ctx, text, name).then(({ session: x, duplicate }) => ({ ok: true, duplicate, session: x && { id: x.id, title: x.title, started: x.started } }))
         .catch((err) => ({ status: 400, json: { error: err instanceof Error ? err.message : String(err) } }))
     }
+    if (req.path.startsWith('/session/') && req.method === 'DELETE') { const id = Number(req.path.slice(9)); if (!s.get(id)) return { status: 404, json: { error: 'no such session' } }; s.remove(id); return { ok: true } }
   },
 
   phone(ctx) {
@@ -375,7 +381,8 @@ export default {
       <p>${esc(x.summary)}</p>
       ${x.actions.length ? `<ul class="rows">${x.actions.map((a) => `<li><span>${esc(a.text)}${a.due ? ` <small class="muted">· ${esc(a.due)}</small>` : ''}</span><button data-todo="${esc(a.text)}" data-due="${esc(a.due || '')}">→ Todoist</button></li>`).join('')}</ul>` : ''}
       ${x.terms.length ? `<p class="muted">${x.terms.map((t) => `<b>${esc(t.term)}</b> — ${esc(t.definition)}`).join('<br>')}</p>` : ''}
-      <details><summary class="muted">Transcript${x.source && x.source !== 'glasses' ? ` (${esc(x.source)})` : ''}</summary><pre>${esc(x.transcript)}</pre></details></details>`).join('')
+      <details><summary class="muted">Transcript${x.source && x.source !== 'glasses' ? ` (${esc(x.source)})` : ''}</summary><pre>${esc(x.transcript)}</pre></details>
+      <p class="row"><button data-resum="${x.id}">Re-summarize</button><button data-del="${x.id}">Delete</button></p></details>`).join('')
     return `<h1>Transcribe <small class="muted">${m.screen === 'live' ? '● recording' : `${sessions.length} sessions`}</small></h1>
       <div class="card"><b>Prep notes for the next conversation</b>
         <p class="muted">Who you're meeting, the agenda, numbers and questions. Cues draw on these.</p>
@@ -389,13 +396,19 @@ export default {
       ${cards || '<p class="muted">No sessions yet — tap the glasses to start one.</p>'}
       <script>
         document.getElementById('import').onchange = async (e) => {
-          const st = document.getElementById('import-status'); const files = [...e.target.files]; let n = 0
-          for (const f of files) { st.textContent = 'importing ' + f.name + '…'; try { await omni.api('/import', { method: 'POST', body: { name: f.name, text: await f.text() } }); n++ } catch (err) { st.textContent = 'failed: ' + f.name + ' — ' + err; return } }
-          st.textContent = 'imported ' + n; setTimeout(omni.reload, 800)
+          const st = document.getElementById('import-status'); const files = [...e.target.files]; let n = 0, dup = 0; const failed = []
+          for (const f of files) {
+            st.textContent = 'importing ' + (n + dup + failed.length + 1) + '/' + files.length + ': ' + f.name + '…'
+            try { const r = await omni.api('/import', { method: 'POST', body: { name: f.name, text: await f.text() } }); if (r.duplicate) dup++; else n++ } catch (err) { failed.push(f.name) }
+          }
+          st.textContent = 'imported ' + n + (dup ? ', ' + dup + ' already there' : '') + (failed.length ? ', failed: ' + failed.join(', ') : '') + '. Summaries are being written in the background.'
+          setTimeout(omni.reload, 1500)
         }
         document.getElementById('save-prep').onclick = () => omni.api('/prep', { method: 'POST', body: { prep: document.getElementById('prep').value } }).then(() => omni.reload())
         const st = document.getElementById('start'); if (st) st.onclick = () => omni.api('/message', { method: 'POST', body: { start: true } }).then(() => omni.reload())
         const sp = document.getElementById('stop'); if (sp) sp.onclick = () => omni.api('/message', { method: 'POST', body: { stop: true } }).then(() => setTimeout(omni.reload, 4000))
+        for (const b of document.querySelectorAll('[data-del]')) b.onclick = () => { if (confirm('Delete this session?')) omni.api('/session/' + b.dataset.del, { method: 'DELETE' }).then(() => omni.reload()) }
+        for (const b of document.querySelectorAll('[data-resum]')) b.onclick = () => { b.textContent = 'working…'; omni.api('/resummarize?id=' + b.dataset.resum, { method: 'POST' }).then(() => omni.reload()) }
         for (const b of document.querySelectorAll('[data-todo]')) b.onclick = () => omni.api('/todo', { method: 'POST', body: { text: b.dataset.todo, due: b.dataset.due || undefined } }).then(() => { b.textContent = 'added ✓' })
       </script>`
   },

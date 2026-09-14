@@ -2,7 +2,7 @@
 // session in <dataDir>/sessions/ so an assistant can read them directly.
 
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** @typedef {{ id: number, started: number, ended: number | null, source: string, location: string, title: string, summary: string, actions: { text: string, due?: string, done?: boolean }[], terms: { term: string, definition: string }[], people: { name: string, role?: string }[], prep: string, transcript: string }} Session */
@@ -59,6 +59,23 @@ export class Store {
       `## Transcript\n\n${s.transcript}`,
     ].filter(Boolean).join('\n')
     writeFileSync(join(this.dir, 'sessions', `${date.slice(0, 10)}-${slug || s.id}.md`), md)
+  }
+  /** An already-imported copy of the same conversation, if any. @param {number} started @param {string} transcript */
+  findDuplicate(started, transcript) {
+    const rows = this.db.prepare('SELECT * FROM sessions WHERE started BETWEEN ? AND ?').all(started - 60_000, started + 60_000)
+    const r = rows.find((x) => String(x.transcript) === transcript)
+    return r ? Store.row(r) : null
+  }
+  /** @param {number} id */
+  remove(id) {
+    this.db.prepare('DELETE FROM fts WHERE session_id = ?').run(id)
+    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    const dir = join(this.dir, 'sessions')
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.md')) continue
+      const head = readFileSync(join(dir, f), 'utf8').slice(0, 400)
+      if (head.includes(`\n- session: ${id}\n`)) unlinkSync(join(dir, f))
+    }
   }
   /** @param {number} id @returns {Session | null} */
   get(id) { const r = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id); return r ? Store.row(r) : null }
