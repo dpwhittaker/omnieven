@@ -533,7 +533,13 @@ export class Shell extends EventEmitter {
     // Root screens: home list or an API-pushed view.
     if (keys.length) {
       const b = matchBinding(this.config.gestures.root, keys)
-      if (b) { this.gestures.reset(); log('shell', `gesture root.${b.key} → ${b.action}`); this.runAction(b.action); return }
+      if (b) {
+        this.gestures.reset()
+        // "back until the main menu": an exit bound to double-tap first climbs out of
+        // folders (and off an API-pushed view); only the top-level home screen exits.
+        if (b.action === 'exit' && b.key === 'double' && (this.homePath.length || this.scratch)) { log('shell', 'gesture root.double → up'); this.home(this.homePath.slice(0, -1)); return }
+        log('shell', `gesture root.${b.key} → ${b.action}`); this.runAction(b.action); return
+      }
     }
     if (ev.type === 'select' && !this.scratch) {
       const row = this.homeRows()[ev.index]
