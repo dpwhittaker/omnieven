@@ -39,7 +39,14 @@ events appear on `GET /api/events` with `dropped: true` and in the log.
 tap is a list selection but still counts as `tap` in sequences. The longest matching
 sequence wins.
 
-**Actions**: `home`, `exit` (system dialog), `quit` (immediate), `blank` (display off until
+**The Even Hub standard** (what the store reviews for) is the default: on the root screens a
+**double-tap opens the system exit dialog** (`exit`). Everything is still yours to rebind —
+Settings has a *Reset gestures to the standard* row to go back. Before a server is connected
+(no server set up, still on the start screen) the phone app handles the double-tap itself, so
+the app can always be left.
+
+**Actions**: `home`, `exit` (system dialog), `quit` (immediate; not accepted by the store as
+the root double-tap), `blank` (display off until
 the next gesture), `config` (Settings), `open:<appId>`, `next-app`, `prev-app`,
 `notify:<text>`, `none` (mask a default).
 

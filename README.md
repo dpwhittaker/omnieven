@@ -111,9 +111,11 @@ memo downloads. It also works in a normal browser at `<PUBLIC_URL>/app/?token=�
 - **In an app**: gestures go to the app; double-tap returns home by default; tap-and-hold
   opens the contextual menu with the app's actions, its settings and *Home* (other apps
   only if you enable that in Settings — it stays short no matter how many apps you have).
-- **Gestures are yours to bind** — on the glasses via *Settings* (home menu, or tap then
-  long-press anywhere) or with `PUT /api/config`: e.g. double-tap on the home screen →
-  display off, or → jump to the mini clock. See [`docs/CONFIG.md`](docs/CONFIG.md).
+- **Double-tap on the home screen opens the system exit dialog** — the Even Hub standard,
+  and the default. **Gestures are yours to bind** — on the glasses via *Settings* (home
+  menu, or tap then long-press anywhere) or with `PUT /api/config`: e.g. double-tap on the
+  home screen → display off, or → jump to the mini clock; *Reset gestures to the standard*
+  in Settings puts the defaults back. See [`docs/CONFIG.md`](docs/CONFIG.md).
 - **Notifications**: `POST /api/notify {"text": "…"}` shows a toast over anything.
 
 ## HTTP API
@@ -154,6 +156,11 @@ rebuilds the client with that server's WebSocket URL as its default, and packs `
 Download it from the setup page (*⬇ Download omni.ehpk*) and upload it at
 hub.evenrealities.com → *Private builds*; install on the phone from *Me → Apps → Private
 builds*. First launch: paste the token, *Save & connect* — it is stored in the Even app.
+
+Publishing to the store: the listing needs a privacy policy — [`docs/PRIVACY.md`](docs/PRIVACY.md)
+covers every permission the client requests (link to your fork's copy); the reviewers check
+that the glasses render something at launch with no server, and that a double-tap on the
+root screen opens the exit dialog — both handled by the client even before a server is set up.
 
 ## Layout
 

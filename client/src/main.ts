@@ -313,6 +313,15 @@ function relayEvent(ev: EvenHubEvent) {
       sendFrame({ t: 'event', ev: { sysEvent: { eventType: type, imuData: sys.imuData } } })
       return
     }
+    // Store standard: a double-tap on the root page must open the system exit
+    // dialog. The server does this (configurable) once it is drawing; before
+    // that — no server set up, not connected, still on the splash — the client
+    // handles it itself so the app can always be left.
+    if (type === OsEventTypeList.DOUBLE_CLICK_EVENT && (!serverPageShown || !sock.connected)) {
+      log('double-tap on the splash → exit dialog')
+      void exclusive(() => withTimeout(bridge!.shutDownPageContainer(1), 'shutDownPageContainer')).catch((e) => log(`exit dialog: ${e}`, 'warn'))
+      return
+    }
   }
   sendFrame({ t: 'event', ev: ev as any })
 }

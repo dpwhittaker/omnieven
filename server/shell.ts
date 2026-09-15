@@ -6,7 +6,7 @@ import type { AppEvent, AppLocation, CmdArgs, CmdOp, EvenHubEvent, NormalizedEve
 import type { AppSetting } from '../shared/app.ts'
 import type { ExplicitView, MenuItem, View } from '../shared/view.ts'
 import type { HttpRequest, HttpResponse } from '../shared/app.ts'
-import type { Action, OmniConfig } from '../shared/config.ts'
+import { DEFAULT_CONFIG, type Action, type OmniConfig } from '../shared/config.ts'
 import { normalizeEvent } from './protocol.ts'
 import { compile, SCREEN } from './renderer.ts'
 import { AppRegistry, type GroupNode, type LoadedApp } from './apps.ts'
@@ -81,6 +81,7 @@ export class Shell extends EventEmitter {
       config: () => this.config,
       setBinding: (scope, gesture, action) => this.setBinding(scope, gesture, action),
       setMenu: (patch) => { this.updateConfig({ menu: { ...this.config.menu, ...patch } }) },
+      resetGestures: () => { this.resetGestures(); this.notify('Gestures reset to the standard', { ms: 1500 }) },
       apps: () => this.registry.list().map((a) => ({ id: a.id, title: a.title, group: a.group })),
       close: () => this.restore(),
     }))
@@ -95,6 +96,13 @@ export class Shell extends EventEmitter {
     else this.config.gestures[scope][gesture] = action
     saveConfig(this.config)
     log('shell', `gesture ${scope}.${gesture} → ${action ?? '(unbound)'}`)
+    this.emit('config', this.config)
+  }
+  /** The store-standard bindings (docs/CONFIG.md): root double-tap = system exit dialog. */
+  resetGestures(): void {
+    this.config.gestures = { root: { ...DEFAULT_CONFIG.gestures.root }, global: { ...DEFAULT_CONFIG.gestures.global }, app: { ...DEFAULT_CONFIG.gestures.app } }
+    saveConfig(this.config)
+    log('shell', 'gestures reset to defaults')
     this.emit('config', this.config)
   }
   updateConfig(patch: Partial<OmniConfig>): OmniConfig {

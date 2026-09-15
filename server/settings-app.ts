@@ -16,6 +16,8 @@ export interface SettingsHost {
   config(): OmniConfig
   setBinding(scope: Scope, gesture: string, action: Action | null): void
   setMenu(patch: Partial<OmniConfig['menu']>): void
+  /** put every gesture scope back to the defaults (the Even Hub store standard) */
+  resetGestures(): void
   apps(): { id: string; title: string; group: string }[]
   close(): void
 }
@@ -52,6 +54,7 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
             ...SCOPES.map((s) => `${s.label}  (${s.hint})`),
             `Menu shows other apps:  ${MENU_APPS.find((o) => o.value === cfg.menu.apps)?.label.split(' (')[0]}`,
             `Menu shows Settings item:  ${cfg.menu.settings ? 'yes' : 'no'}`,
+            'Reset gestures to the standard (double-tap = exit dialog)',
           ])] }
         case 'menu-apps':
           return { containers: [header('Which other apps appear in an app\'s tap-and-hold menu?'), list(MENU_APPS.map((o) => `${o.value === cfg.menu.apps ? '● ' : '○ '}${o.label}`))] }
@@ -80,7 +83,8 @@ export function makeSettingsApp(host: SettingsHost): OmniApp<{}, Mem> {
           if (i < 0) return back(m)
           if (i < SCOPES.length) { m.scope = SCOPES[i].id; m.level = 'bindings' }
           else if (i === SCOPES.length) m.level = 'menu-apps'
-          else host.setMenu({ settings: !cfg.menu.settings })
+          else if (i === SCOPES.length + 1) host.setMenu({ settings: !cfg.menu.settings })
+          else host.resetGestures()
           break
         }
         case 'menu-apps': {
