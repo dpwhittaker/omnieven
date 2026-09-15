@@ -118,7 +118,8 @@ export class Shell extends EventEmitter {
       const list = this.registry.list()
       if (!list.length) return true
       const i = list.findIndex((a) => a.id === this.activeId)
-      const n = action === 'next-app' ? (i + 1) % list.length : (i - 1 + list.length) % list.length
+      // from the home screen (nothing active) go to the first / the last app
+      const n = i < 0 ? (action === 'next-app' ? 0 : list.length - 1) : action === 'next-app' ? (i + 1) % list.length : (i - 1 + list.length) % list.length
       this.open(list[n].id)
       return true
     }
@@ -376,9 +377,14 @@ export class Shell extends EventEmitter {
     for (const id of this.config.menu.pinned) { const a = all.find((x) => x.id === id); if (a && a.id !== app.id) others.push(a) }
     if (this.config.menu.apps === 'folder') for (const a of all) if (a.group.toLowerCase() === app.group.toLowerCase() && a.id !== app.id && !others.includes(a)) others.push(a)
     if (this.config.menu.apps === 'all') for (const a of all) if (a.id !== app.id && !others.includes(a)) others.push(a)
+    // Other apps get ids by menu position (APP_BASE..CUSTOM_BASE-1), never by
+    // their index in the full app list, so they cannot collide with custom ids.
+    app.menuApps = new Map()
     for (const a of others) {
       if (items.length >= MENU.MAX_ITEMS) break
-      items.push({ id: MENU.APP_BASE + all.indexOf(a), label: a.title })
+      const id = MENU.APP_BASE + app.menuApps.size
+      app.menuApps.set(id, a.id)
+      items.push({ id, label: a.title })
     }
     return items
   }
@@ -442,6 +448,7 @@ export class Shell extends EventEmitter {
     const ev = normalizeEvent(raw)
     if (this.isRepeat(conn, ev)) { this.emit('event', { ...ev, ts: Date.now(), conn: conn.id, dropped: true }); return }
     this.lastEvent = { ...ev, ts: Date.now(), conn: conn.id }
+    conn.lastInput = this.lastEvent
     this.emit('event', this.lastEvent)
     const app = this.activeApp
 
@@ -488,8 +495,8 @@ export class Shell extends EventEmitter {
       if (ev.itemId === MENU.SETTINGS) return this.openSettings()
       if (ev.itemId === MENU.APP_SETTINGS) { if (app?.mod?.settings) { this.appSettings = { screen: 'list', index: 0 }; this.requestRender() } return }
       if (ev.itemId >= MENU.APP_BASE && ev.itemId < MENU.CUSTOM_BASE) {
-        const a = this.registry.list()[ev.itemId - MENU.APP_BASE]
-        if (a) this.open(a.id)
+        const id = app?.menuApps?.get(ev.itemId)
+        if (id) this.open(id)
         return
       }
       const key = app?.menuMap?.get(ev.itemId)
@@ -539,8 +546,8 @@ export class Shell extends EventEmitter {
     if (!['tap', 'double', 'up', 'down', 'longpress', 'select', 'menu'].includes(ev.type)) return false
     const { repeatMs, waitForRender, maxWaitMs } = this.config.input
     const now = Date.now()
-    const prev = this.lastEvent
-    const same = prev && prev.conn === conn.id && prev.type === ev.type
+    const prev = conn.lastInput
+    const same = prev && prev.type === ev.type
       && (ev.type !== 'select' || (prev as { index?: number }).index === (ev as { index?: number }).index)
       && (ev.type !== 'menu' || (prev as { itemId?: number }).itemId === (ev as { itemId?: number }).itemId)
     if (!same) return false

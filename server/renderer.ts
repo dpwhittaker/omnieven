@@ -104,6 +104,13 @@ export function compile(view: View): Compiled {
       const ic = c as ImageContainer
       if (imageObject.length >= LIMITS.images) continue
       if (id >= LIMITS.containers) break
+      let src: unknown = ic.png
+      if (src && typeof src === 'object' && 'toPng' in src && typeof (src as any).toPng === 'function') src = (src as any).toPng()
+      const b64 = Buffer.isBuffer(src) ? src.toString('base64')
+        : src instanceof Uint8Array ? Buffer.from(src).toString('base64')
+        : typeof src === 'string' ? src : null
+      // No usable bytes → no container (it would sit blank and eat a slot).
+      if (!b64) continue
       const w = clamp(ic.w ?? 288, 20, 288), h = clamp(ic.h ?? 144, 20, 144)
       const containerID = ++id
       const containerName = uniqueName(ic.name, `img${containerID}`)
@@ -111,12 +118,7 @@ export function compile(view: View): Compiled {
         xPosition: clamp(ic.x, 0, SCREEN.width), yPosition: clamp(ic.y, 0, SCREEN.height),
         width: w, height: h, containerID, containerName, zOrderIndex: containerID,
       })
-      let src: unknown = ic.png
-      if (src && typeof src === 'object' && 'toPng' in src && typeof (src as any).toPng === 'function') src = (src as any).toPng()
-      const b64 = Buffer.isBuffer(src) ? src.toString('base64')
-        : src instanceof Uint8Array ? Buffer.from(src).toString('base64')
-        : typeof src === 'string' ? src : null
-      if (b64) images.push({ containerID, containerName, png: b64, hash: createHash('sha1').update(b64).digest('hex') })
+      images.push({ containerID, containerName, png: b64, hash: createHash('sha1').update(b64).digest('hex') })
       continue
     }
     if (textObject.length + listObject.length >= LIMITS.textOrList) continue
@@ -203,6 +205,10 @@ export function diff(committed: Compiled | null, next: Compiled): Op[] {
   const ops: Op[] = []
   if (!committed || committed.structureKey !== next.structureKey) {
     ops.push({ op: 'page', args: next.page })
+    // A rebuild recreates the containers, so every image must be sent again —
+    // except that the firmware keeps image data per container id across a
+    // rebuild only when we resend it; there is no "keep", so resend all. (A
+    // menu-only change still rebuilds; apps should keep menus stable.)
     for (const im of next.images) ops.push({ op: 'image', args: { containerID: im.containerID, containerName: im.containerName, png: im.png } })
     for (const t of next.page.textObject) {
       const full = next.texts.get(t.containerID)

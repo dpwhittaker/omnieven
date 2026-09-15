@@ -63,6 +63,8 @@ function articleText(html) {
     const closing = tok[1] === '/'
     const selfClosing = tok.endsWith('/>') || tag === 'br'
     if (SKIP.has(tag)) { if (!selfClosing) skip += closing ? -1 : 1; if (skip < 0) skip = 0; continue }
+    // an unclosed <script>/<style> (truncated page) must not swallow the article
+    if (skip && !closing && (tag === 'article' || tag === 'main' || tag === 'body')) skip = 0
     if (skip) continue
     if (tag === 'article' || tag === 'main') { flush(); inScope += closing ? -1 : 1; if (inScope < 0) inScope = 0; continue }
     if (BLOCK.has(tag)) {
@@ -180,9 +182,10 @@ export default {
 
   init(ctx) {
     ctx.mem.stories ??= []
-    ctx.mem.selected = null
-    ctx.mem.view = 'article'
-    ctx.mem.page = 0
+    // navigation state survives a hot reload (mem persists)
+    ctx.mem.selected ??= null
+    ctx.mem.view ??= 'article'
+    ctx.mem.page ??= 0
     ctx.mem.loading = false
     ctx.mem.articles ??= {}
     ctx.mem.comments ??= {}

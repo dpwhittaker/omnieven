@@ -89,6 +89,8 @@ export default {
   },
 
   onClose(ctx) { if (ctx.mem.recording) { void ctx.audio(false); ctx.mem.recording = false } },
+  // a hot reload mid-recording must turn the mic off too (init() forgets `recording`)
+  unload(ctx) { if (ctx.mem.recording) { void ctx.audio(false); ctx.mem.recording = false } },
 
   // Phone side: play, download or delete the memos.
   http(ctx, req) {

@@ -29,7 +29,7 @@ export default {
 
   init(ctx) {
     ctx.state.notes ??= []
-    ctx.mem.open = null
+    ctx.mem.open ??= null   // an open note survives a hot reload
   },
 
   render(ctx) {

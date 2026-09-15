@@ -3,7 +3,7 @@
 // glasses plus the simulator, say) can be driven from a single shell.
 import { EventEmitter } from 'node:events'
 import type { WebSocket } from 'ws'
-import type { ClientFrame, CmdArgs, CmdOp, DeviceInfo, HelloFrame, ServerFrame, UserInfo } from '../shared/protocol.ts'
+import type { ClientFrame, CmdArgs, CmdOp, DeviceInfo, HelloFrame, NormalizedEvent, ServerFrame, UserInfo } from '../shared/protocol.ts'
 import type { View } from '../shared/view.ts'
 import { compile, diff, type Compiled } from './renderer.ts'
 import { log } from './log.ts'
@@ -42,6 +42,10 @@ export class Connection extends EventEmitter {
   private rendering = false
   /** when the in-flight render started (0 = idle); used for input debouncing */
   busySince = 0
+  /** heartbeat: set false on ping, true on pong; two misses = dead */
+  alivePing = true
+  /** the last gesture accepted from this client (input debouncing is per client) */
+  lastInput: (NormalizedEvent & { ts: number; conn: number }) | null = null
 
   readonly ws: WebSocket
   readonly remote: string
@@ -108,9 +112,12 @@ export class Connection extends EventEmitter {
         } catch (err) {
           ok = false
           log('warn', `conn ${this.id} ${op} failed: ${(err as Error).message}`)
-          // The display no longer matches what we believe; rebuild next pass.
+          // The display no longer matches what we believe; rebuild next pass
+          // (a failed page build too — otherwise nothing is drawn until the
+          // next gesture or refresh).
           this.committed = null
-          if (op !== 'page') this.wantView = this.wantView ?? view
+          this.wantView = this.wantView ?? view
+          if (op === 'page') await new Promise((r) => setTimeout(r, 1500))   // don't hammer a failing link
           break
         }
       }

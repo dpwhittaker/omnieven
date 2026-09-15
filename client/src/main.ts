@@ -111,24 +111,37 @@ const sock = new OmniSocket({
     if (frame.t === 'api') { const p = apiPending.get(frame.id); if (p) { apiPending.delete(frame.id); p(frame) } return }
     if (frame.t === 'cmd') {
       // Bridge calls must never overlap: the SDK shares one BLE link.
-      cmdChain = cmdChain.then(() => runCmd(frame)).catch(() => {})
+      cmdChain = cmdChain.then(() => runCmd(frame)).catch(() => {}).then(() => inflight)
     }
   },
 })
 
+// A bridge call that times out is abandoned by the caller but is still running
+// against the shared BLE link, so the queue must not start the next call until
+// it actually settles (bounded, in case it never does).
+const SETTLE_MAX_MS = 30000
+let inflight: Promise<unknown> = Promise.resolve()
 function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+  const settled = Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, SETTLE_MAX_MS))])
+  inflight = inflight.then(() => settled)
   return Promise.race([
     p,
     new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timed out`)), CALL_TIMEOUT_MS)),
   ])
+}
+/** Run a bridge call in the same queue as server commands (never overlap on the BLE link). */
+function exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const p = cmdChain.then(fn)
+  cmdChain = p.catch(() => {}).then(() => inflight)
+  return p
 }
 
 async function sendHello() {
   const profile = currentProfile()
   let device: unknown = null
   let user: unknown = null
-  try { device = await withTimeout(bridge!.getDeviceInfo(), 'getDeviceInfo') } catch (e) { log(`getDeviceInfo: ${e}`, 'warn') }
-  try { user = await withTimeout(bridge!.getUserInfo(), 'getUserInfo') } catch (e) { log(`getUserInfo: ${e}`, 'warn') }
+  try { device = await exclusive(() => withTimeout(bridge!.getDeviceInfo(), 'getDeviceInfo')) } catch (e) { log(`getDeviceInfo: ${e}`, 'warn') }
+  try { user = await exclusive(() => withTimeout(bridge!.getUserInfo(), 'getUserInfo')) } catch (e) { log(`getUserInfo: ${e}`, 'warn') }
   sendFrame({
     t: 'hello',
     token: profile.token,
@@ -313,7 +326,7 @@ function currentProfile(): Profile {
 // already-decoded object; normalise all of them to a trimmed string.
 async function storageGet(key: string): Promise<string> {
   try {
-    const raw: unknown = await withTimeout(bridge!.getLocalStorage(key), `getLocalStorage(${key})`)
+    const raw: unknown = await exclusive(() => withTimeout(bridge!.getLocalStorage(key), `getLocalStorage(${key})`))
     if (raw == null) return ''
     if (typeof raw === 'string') return raw.trim()
     return JSON.stringify(raw)
@@ -333,13 +346,16 @@ async function loadProfile(): Promise<Profile> {
     }
   }
   log(`stored profile: url=${url ? 'yes' : 'no'} token=${token ? 'yes' : 'no'}`)
-  return { url: url || defaultUrl(), token: tokenFromQuery() || token }
+  // A token in the launch URL (QR sideload) is used only when nothing is stored
+  // yet, so a token rotated later in Connect isn't silently overwritten on
+  // every relaunch of the same URL.
+  return { url: url || defaultUrl(), token: token || tokenFromQuery() }
 }
 
 async function saveProfile(p: Profile) {
   try {
-    const okUrl = await withTimeout(bridge!.setLocalStorage(KEY_URL, p.url), 'setLocalStorage(url)')
-    const okTok = await withTimeout(bridge!.setLocalStorage(KEY_TOKEN, p.token), 'setLocalStorage(token)')
+    const okUrl = await exclusive(() => withTimeout(bridge!.setLocalStorage(KEY_URL, p.url), 'setLocalStorage(url)'))
+    const okTok = await exclusive(() => withTimeout(bridge!.setLocalStorage(KEY_TOKEN, p.token), 'setLocalStorage(token)'))
     const back = await storageGet(KEY_TOKEN)
     if (okUrl && okTok && back === p.token) log('profile saved')
     else log(`profile save unverified (url=${okUrl} token=${okTok} readback=${back === p.token})`, 'warn')
@@ -388,7 +404,7 @@ async function boot() {
   elToken.value = profile.token
   // A QR/URL-supplied token is persisted immediately so the next launch
   // (with or without the query string) reconnects on its own.
-  if (tokenFromQuery() && profile.url) await saveProfile(profile)
+  if (tokenFromQuery() && profile.url && profile.token === tokenFromQuery()) await saveProfile(profile)
 
   elSave.onclick = async () => {
     const p = currentProfile()

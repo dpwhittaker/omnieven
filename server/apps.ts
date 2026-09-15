@@ -4,7 +4,7 @@
 // survive a reload, so editing a file never loses what the user was looking at.
 import { EventEmitter } from 'node:events'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
-import { basename, dirname, extname, join, sep } from 'node:path'
+import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AppContext, OmniApp } from '../shared/app.ts'
 import type { DeviceInfo, UserInfo, AppLocation } from '../shared/protocol.ts'
@@ -58,6 +58,8 @@ export interface LoadedApp {
   folderGroup: string
   /** numeric menu id → app's own id, rebuilt every render by the shell */
   menuMap?: Map<number, string>
+  /** other-app menu rows: item id → app id */
+  menuApps?: Map<number, string>
   state: Record<string, any>
   mem: Record<string, any>
   timers: Set<NodeJS.Timeout>
@@ -102,9 +104,10 @@ export class AppRegistry extends EventEmitter {
 
   /** First run: seed the apps directory from demo/ so there is something to see. */
   bootstrap(): boolean {
-    if (existsSync(this.dir) && readdirSync(this.dir).some((f) => this.entryFor(f))) return false
+    // anything already there (apps or folders of apps) means the user's set exists
+    if (existsSync(this.dir) && readdirSync(this.dir).some((f) => !f.startsWith('.'))) return false
     mkdirSync(this.dir, { recursive: true })
-    if (!existsSync(DEMO_DIR)) return false
+    if (!existsSync(DEMO_DIR) || resolve(DEMO_DIR) === resolve(this.dir)) return false
     cpSync(DEMO_DIR, this.dir, { recursive: true })
     log('apps', `seeded ${this.dir} from demo/`)
     return true
@@ -348,8 +351,10 @@ export class AppRegistry extends EventEmitter {
     const full = join(dir, filename)
     // New directory → watch it too (and its children).
     try { if (statSync(full).isDirectory()) this.watchDir(full) } catch {
-      const w = this.watchers.get(full)
-      if (w) { w.close(); this.watchers.delete(full) }
+      // Gone (deleted or moved away): close its watcher and every descendant's —
+      // a rename fires only on the parent, so the subtree's watchers would
+      // otherwise follow the inodes forever.
+      for (const [p, w] of this.watchers) if (p === full || p.startsWith(full + sep)) { w.close(); this.watchers.delete(p) }
     }
     // Which app owns this path? Walk up until an app entry (file, or a
     // directory with index.*) is found; otherwise it is a group-level change.

@@ -3,7 +3,7 @@
 
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 /** @typedef {{ id: number, started: number, ended: number | null, source: string, location: string, title: string, summary: string, actions: { text: string, due?: string, done?: boolean }[], terms: { term: string, definition: string }[], people: { name: string, role?: string }[], prep: string, transcript: string }} Session */
 
@@ -145,8 +145,9 @@ export class Store {
   }
   /** @param {string} path */
   readNote(path) {
-    const f = join(this.dir, 'knowledge', path)
-    if (!f.startsWith(join(this.dir, 'knowledge')) || !existsSync(f)) return null
+    const root = join(this.dir, 'knowledge')
+    const f = resolve(root, path)
+    if (!f.startsWith(root + sep) || !existsSync(f)) return null
     return readFileSync(f, 'utf8')
   }
 

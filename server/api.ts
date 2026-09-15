@@ -157,7 +157,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
       if (m === 'GET' && rest === '/phone') {
         if (typeof app.mod?.phone !== 'function') { sendJson(res, 404, { error: `app ${id} has no phone page` }); return true }
         const fragment = await (app.mod.phone.call(app.mod, app.ctx!, { method: m, path: '/phone', query: Object.fromEntries(url.searchParams), body: null, headers: req.headers }) as string | Promise<string>)
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' })
         res.end(phonePage(id, app.title, String(fragment ?? ''), tokenOf(req, url)))
         return true
       }

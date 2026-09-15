@@ -114,7 +114,11 @@ wss.on('connection', (ws, req) => {
   log('ws', `client ${conn.id} connected from ${remote}`)
   conn.send({ t: 'welcome', serverVersion: VERSION })
   let registered = false
-  const hb = setInterval(() => conn.send({ t: 'ping' }), 20000)
+  const hb = setInterval(() => {
+    if (!conn.alivePing) { log('ws', `client ${conn.id} missed heartbeat — closing`); try { ws.terminate() } catch {} return }
+    conn.alivePing = false
+    conn.send({ t: 'ping' })
+  }, 20000)
 
   ws.on('message', (data, isBinary) => {
     if (isBinary) { shell.handleAudio(conn, Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)); return }
@@ -135,7 +139,7 @@ wss.on('connection', (ws, req) => {
       case 'location': shell.handleLocation(frame.loc); break
       case 'launch': conn.launchSource = frame.source; break
       case 'log': log(`client:${conn.id}`, `${frame.level}: ${frame.msg}`); break
-      case 'pong': break
+      case 'pong': conn.alivePing = true; break
       case 'api': void tunnelApi(conn, frame); break
       default: log('warn', `client ${conn.id} unknown frame ${(frame as { t: string }).t}`)
     }

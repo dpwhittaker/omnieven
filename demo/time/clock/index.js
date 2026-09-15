@@ -25,6 +25,18 @@ const POSITIONS = [
 const yesNo = [{ value: true, label: 'yes' }, { value: false, label: 'no' }]
 
 /** @type {State} */
+/**
+ * Only values the settings schema offers (or a value of the default's type,
+ * for keys without options) are accepted — a bad value would persist and
+ * break render() until fixed.
+ * @param {import('../../../shared/app.ts').AppContext<any, any>} ctx @param {string} k @param {unknown} v
+ */
+function validSetting(ctx, k, v) {
+  /** @type {any[]} */ const schema = /** @type {any} */ (app).settings || []
+  const opt = schema.find((o) => o.key === k)
+  if (opt && Array.isArray(opt.options)) return opt.options.some((/** @type {any} */ o) => o.value === v)
+  return typeof v === typeof /** @type {any} */ (DEFAULTS)[k]
+}
 const DEFAULTS = { style: 'full', position: 'top-right', size: 3, brightness: 3, seconds: true, hour12: false, date: true, fade: 0, wake: 'both', invert: false, threshold: 25 }
 
 /** @param {import('../../../shared/app.ts').AppContext<State, Mem>} ctx */
@@ -57,7 +69,7 @@ function wake(ctx, by = 'tap') {
 }
 
 /** @type {import('../../../shared/app.ts').OmniApp<State, Mem>} */
-export default {
+const app = {
   title: 'Clock',
   order: 1,
   refresh: 1000,
@@ -135,7 +147,7 @@ export default {
       if (dateLine) containers.push({ type: 'text', name: 'date', x, y: y + h, w: Math.max(w, 200), h: 31, padding: 2, textColor: s.brightness, text: dateLine })
     } else {
       const w = Math.min(W, Math.max(ctx.ui.getTextWidth(time), ctx.ui.getTextWidth(dateLine)) + 12)
-      const h = dateLine ? 62 : 34
+      const h = dateLine ? 62 : 35
       const { x, y } = anchor(s.position, w, h)
       containers.push({ type: 'text', name: 'time', x, y, w, h, padding: 4, textColor: s.brightness, text: dateLine ? `${time}\n${dateLine}` : time })
     }
@@ -147,7 +159,7 @@ export default {
   },
 
   onMessage(ctx, msg) {
-    for (const k of Object.keys(DEFAULTS)) if (msg[k] !== undefined) /** @type {any} */ (ctx.state)[k] = msg[k]
+    for (const k of Object.keys(DEFAULTS)) if (msg[k] !== undefined && validSetting(ctx, k, msg[k])) /** @type {any} */ (ctx.state)[k] = msg[k]
     ctx.save(); void setImu(ctx, wantsImu(ctx)); wake(ctx, 'message')
     return ctx.state
   },
@@ -168,3 +180,4 @@ export default {
     else if ((s.wake === 'down' || s.wake === 'both') && tilt < -need) wake(ctx, `look-down ${axis}`)
   },
 }
+export default app
