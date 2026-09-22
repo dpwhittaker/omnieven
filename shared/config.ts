@@ -56,6 +56,14 @@ export interface InputConfig {
 export interface OmniConfig {
   menu: MenuConfig
   input: InputConfig
+  /**
+   * App shown in place of the built-in home list — the "launcher" pattern.
+   * When set, leaving an app (the `home` action, ctx.home(), the Home menu
+   * item, POST /api/home) opens this app, and it is on screen at startup.
+   * The classic list stays reachable: the home app's own ctx.home() opens it.
+   * '' = the built-in list.
+   */
+  homeApp: string
   gestures: {
     /** home list, blank screen and API-pushed views — not inside apps */
     root: GestureBindings
@@ -71,6 +79,7 @@ export const GESTURE_WINDOW_MS = 1500
 export const DEFAULT_CONFIG: OmniConfig = {
   menu: { apps: 'none', pinned: [], settings: false },
   input: { repeatMs: 150, waitForRender: true, maxWaitMs: 2000 },
+  homeApp: '',
   gestures: {
     root: { double: 'exit', longpress: 'blank' },
     global: { 'tap>longpress': 'config' },

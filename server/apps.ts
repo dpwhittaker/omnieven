@@ -304,6 +304,7 @@ export class AppRegistry extends EventEmitter {
       home: () => host.home(),
       exit: () => host.exit(),
       message: (id, msg) => host.message(id, msg),
+      apps: () => this.list().filter((a) => a.id !== app.id).map((a) => ({ id: a.id, title: a.title, group: a.group, order: a.order, error: a.loadError || a.error })),
       setInterval: (fn, ms) => { const t = setInterval(wrap('interval', fn), ms); app.timers.add(t); return t },
       setTimeout: (fn, ms) => { const t = setTimeout(() => { app.timers.delete(t); wrap('timeout', fn)() }, ms); app.timers.add(t); return t },
       clear: (t) => { clearInterval(t); clearTimeout(t); app.timers.delete(t) },

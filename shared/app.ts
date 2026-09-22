@@ -27,6 +27,17 @@ export interface HttpRequest {
 /** undefined → 404 (no handler); null → 204; string → text; {status,json|body,headers} → explicit; object → JSON */
 export type HttpResponse = undefined | null | string | { status?: number; headers?: Record<string, string>; body?: string | Uint8Array; json?: unknown } | Record<string, unknown>
 
+/** What ctx.apps() says about another app. */
+export interface AppInfo {
+  id: string
+  title: string
+  /** home-screen folder path, '' = top level */
+  group: string
+  order: number
+  /** load/runtime error, if any (the home list shows these with a "!") */
+  error: string | null
+}
+
 export interface AppContext<S = Record<string, any>, M = Record<string, any>> {
   readonly id: string
   readonly title: string
@@ -56,6 +67,8 @@ export interface AppContext<S = Record<string, any>, M = Record<string, any>> {
   exit(): Promise<unknown>
   /** deliver a message to another app's onMessage */
   message(id: string, msg: unknown): unknown
+  /** the other apps on the home list (not hidden, not this one), in home order — for launchers */
+  apps(): AppInfo[]
   /** timers cleared automatically on reload/unload */
   setInterval(fn: () => void, ms: number): NodeJS.Timeout
   setTimeout(fn: () => void, ms: number): NodeJS.Timeout

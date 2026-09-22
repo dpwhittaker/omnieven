@@ -88,6 +88,15 @@ export class Shell extends EventEmitter {
     this.registry.bootstrap()
     await this.registry.loadAll()
     this.registry.watch()
+    const ha = this.homeApp()
+    if (ha) this.open(ha)
+  }
+
+  /** The configured home app, if it is loaded and not hidden (`open` refuses hidden apps). */
+  homeApp(): string | null {
+    const id = this.config.homeApp
+    const app = id ? this.registry.get(id) : undefined
+    return app && !app.hidden ? id : null
   }
 
   // ── configuration ──────────────────────────────────────────────────
@@ -106,9 +115,13 @@ export class Shell extends EventEmitter {
     this.emit('config', this.config)
   }
   updateConfig(patch: Partial<OmniConfig>): OmniConfig {
+    const before = this.config.homeApp
     this.config = mergeConfig(this.config, patch)
     saveConfig(this.config)
     this.emit('config', this.config)
+    // A newly configured home app replaces the list that is showing right now.
+    const ha = this.homeApp()
+    if (ha && ha !== before && this.activeId === null && !this.scratch) this.open(ha)
     return this.config
   }
 
@@ -210,6 +223,11 @@ export class Shell extends EventEmitter {
   }
 
   home(path: string[] = []): void {
+    // A configured home app stands in for the list when leaving an app.
+    // Navigating within the classic list (nothing active) and the home app's
+    // own ctx.home() fall through, so the built-in list stays reachable.
+    const ha = this.homeApp()
+    if (ha && this.activeId !== null && this.activeId !== ha) return this.open(ha)
     const prev = this.activeApp
     if (prev) this.safe(prev, 'onClose')
     this.scratch = null
@@ -523,8 +541,10 @@ export class Shell extends EventEmitter {
       const handled = this.safe(app, 'onEvent', withRaw(ev, raw))
       if (handled === true) { this.gestures.reset(); this.requestRender(); return }
       if (keys.length && !inSettings) {
-        const b = matchBinding(this.config.gestures.app, keys)
-        if (b) { this.gestures.reset(); log('shell', `gesture app.${b.key} → ${b.action}`); this.runAction(b.action); return }
+        // The home app is the home screen: its unconsumed gestures take the root bindings.
+        const scope = app.id === this.homeApp() ? 'root' : 'app'
+        const b = matchBinding(this.config.gestures[scope], keys)
+        if (b) { this.gestures.reset(); log('shell', `gesture ${scope}.${b.key} → ${b.action}`); this.runAction(b.action); return }
       }
       this.requestRender()
       return

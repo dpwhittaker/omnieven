@@ -173,6 +173,7 @@ On the home screen the menu is *Settings* and *Exit* (plus *Top level* inside a 
 | `notify(text, { title?, ms? })` | full-screen toast over anything; tap dismisses |
 | `open(id?)`, `home()`, `exit()` | navigation; `exit` shows the system exit dialog |
 | `message(id, msg)` | call another app's `onMessage` |
+| `apps()` | the other apps on the home list as `{ id, title, group, order, error }` (not hidden, in home order) — for launchers and switchers; pair with `config.homeApp` (`docs/CONFIG.md`) to replace the home screen |
 | `setInterval / setTimeout / clear` | timers cleared automatically on reload |
 | `audio(on, 'glasses'|'phone')`, `imu(on, pace)`, `location(opts)` | device features → `onAudio` / `onImu` / `onLocation` |
 | `storage.get/set(key, value)` | phone-side key/value store (Even App localStorage) |

@@ -8,6 +8,7 @@ types in [`shared/config.ts`](../shared/config.ts).
 {
   "menu": { "apps": "none", "pinned": [], "settings": false },
   "input": { "repeatMs": 150, "waitForRender": true, "maxWaitMs": 2000 },
+  "homeApp": "",
   "gestures": {
     "root":   { "double": "exit", "longpress": "blank" },
     "global": { "tap>longpress": "config" },
@@ -28,9 +29,22 @@ one caused is still being drawn on the glasses (a page rebuild over BLE can take
 never for longer than `maxWaitMs`. A *different* gesture always goes through. Dropped
 events appear on `GET /api/events` with `dropped: true` and in the log.
 
+**`homeApp`** names an app that stands in for the home list — the *launcher* pattern (an app
+that lists the others with `ctx.apps()` and opens them with `ctx.open(id)`). When set, leaving
+an app (the `home` action, `ctx.home()`, the Home menu item, `POST /api/home`) opens that app
+instead of the list, and it is on screen at startup. The classic list stays one step away:
+the home app's own `ctx.home()` opens it, and navigating within the list (back rows, *Top
+level*) is unaffected. Inside the home app, gestures it does not consume follow the `root`
+bindings (it *is* the home screen), not the in-app defaults. `""` (the default) is the
+built-in list.
+
+```bash
+curl -s -H "Authorization: Bearer $T" -X PUT $A/config -H 'content-type: application/json' -d '{"homeApp":"launcher"}'
+```
+
 | Scope | Applies |
 |---|---|
-| `root` | the home list, the blank (display-off) screen, and views pushed with `POST /api/show` |
+| `root` | the home list (or the `homeApp` standing in for it), the blank (display-off) screen, and views pushed with `POST /api/show` |
 | `global` | everywhere, checked before the current screen (not inside Settings) |
 | `app` | inside apps, only for gestures the app did not consume (`onEvent` returned `true`) |
 

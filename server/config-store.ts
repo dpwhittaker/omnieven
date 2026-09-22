@@ -35,6 +35,10 @@ function cleanInput(i: unknown, base: InputConfig): InputConfig {
   }
 }
 
+function cleanHomeApp(v: unknown, base: string): string {
+  return typeof v === 'string' && /^[\w.-]*$/.test(v) ? v : base
+}
+
 export function loadConfig(): OmniConfig {
   let saved: Partial<OmniConfig> = {}
   if (existsSync(FILE)) {
@@ -44,6 +48,7 @@ export function loadConfig(): OmniConfig {
   return {
     menu: cleanMenu(saved.menu, DEFAULT_CONFIG.menu),
     input: cleanInput(saved.input, DEFAULT_CONFIG.input),
+    homeApp: cleanHomeApp(saved.homeApp, DEFAULT_CONFIG.homeApp),
     gestures: {
       root: { ...DEFAULT_CONFIG.gestures.root, ...cleanBindings(g.root) },
       global: { ...DEFAULT_CONFIG.gestures.global, ...cleanBindings(g.global) },
@@ -62,6 +67,7 @@ export function mergeConfig(cfg: OmniConfig, patch: Partial<OmniConfig>): OmniCo
   return {
     menu: cleanMenu(patch.menu, cfg.menu),
     input: cleanInput(patch.input, cfg.input),
+    homeApp: cleanHomeApp(patch.homeApp, cfg.homeApp),
     gestures: {
       root: { ...cfg.gestures.root, ...cleanBindings(g.root) },
       global: { ...cfg.gestures.global, ...cleanBindings(g.global) },

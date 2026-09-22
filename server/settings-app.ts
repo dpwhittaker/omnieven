@@ -6,7 +6,7 @@ import { ACTION_CHOICES, GESTURE_CHOICES, type Action, type OmniConfig } from '.
 
 type Scope = keyof OmniConfig['gestures']
 const SCOPES: { id: Scope; label: string; hint: string }[] = [
-  { id: 'root', label: 'Home screen gestures', hint: 'on the home list / blank screen' },
+  { id: 'root', label: 'Home screen gestures', hint: 'home list or home app, blank screen' },
   { id: 'global', label: 'Global gestures', hint: 'everywhere, before apps' },
   { id: 'app', label: 'In-app defaults', hint: 'when an app ignores the gesture' },
 ]
