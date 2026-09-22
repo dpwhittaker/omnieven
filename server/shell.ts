@@ -396,7 +396,8 @@ export class Shell extends EventEmitter {
       items.push({ id, label: typeof m === 'string' ? m : m.label ?? key })
     })
     if (app.mod?.settings?.length) items.push({ id: MENU.APP_SETTINGS, label: `${app.title} settings`.slice(0, 32) })
-    items.push({ id: MENU.HOME, label: 'Home' })
+    // The home app is home already; it names its own way to the classic list.
+    if (app.id !== this.homeApp()) items.push({ id: MENU.HOME, label: 'Home' })
     if (this.config.menu.settings) items.push({ id: MENU.SETTINGS, label: 'Settings' })
     const all = this.registry.list()
     const others: LoadedApp[] = []
