@@ -1,3 +1,7 @@
+---
+tags: [Glasses, AI]
+---
+
 # Omni — your own server drives your Even Realities G2 glasses
 
 Omni turns the G2 into a display for a server **you** run. The Even Hub app on the phone is
@@ -16,7 +20,8 @@ Gestures on the dashboard are rebindable from the glasses themselves.
 
 Works well with an AI coding agent: the repo ships a `CLAUDE.md`, the API tells the agent
 what is on the glasses (`/api/screen`) and what you did (`/api/events`), and the fake client
-lets it test apps without touching hardware.
+lets it test apps without touching hardware — `--sandbox` gives it a throwaway server
+instance of its own, so tests never move your glasses.
 
 ## Requirements
 

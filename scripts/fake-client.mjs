@@ -2,15 +2,91 @@
 // Headless stand-in for the phone + glasses. Connects to an Omni server,
 // prints what would be drawn, and lets you inject gestures from stdin.
 // Usage: node scripts/fake-client.mjs [ws://localhost:7788/ws] [token]
+//        node scripts/fake-client.mjs --sandbox [--verbose]
+//   --sandbox starts a private server instance for this session — a free port, its
+//   own data dir and token (the live data/config.json is copied in so gestures and
+//   homeApp match), the same apps/ — and kills it when the client exits, so a test
+//   never moves the real glasses. The sandbox's API URL + token are printed on
+//   stderr for curl. --verbose relays the whole server log; otherwise only its
+//   errors and warnings. (Killed with SIGKILL? `pkill -f omni-sandbox` reaps the server.)
 //   keys: t=tap d=double u=up w=down l=longpress r=release e=foreground-enter x=system-exit
 //         s<N>=select list item N  m<N>=menu item N  q=quit  (one per line; exits when stdin closes)
 //         {…} = raw EvenHubEvent JSON, e.g. {"sysEvent":{"eventType":8,"imuData":{"x":0,"y":1,"z":0}}}
 import WebSocket from 'ws'
 import { createInterface } from 'node:readline'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, mkdtempSync, copyFileSync, rmSync, createWriteStream } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
+import { randomBytes } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const url = process.argv[2] || 'ws://localhost:7788/ws'
-const token = process.argv[3] || (existsSync('data/token') ? readFileSync('data/token', 'utf8').trim() : '')
+const args = process.argv.slice(2)
+const flag = (f) => { const i = args.indexOf(f); if (i < 0) return false; args.splice(i, 1); return true }
+const sandbox = flag('--sandbox')
+const verbose = flag('--verbose')
+
+let url = args[0] || 'ws://localhost:7788/ws'
+let token = args[1] || (existsSync('data/token') ? readFileSync('data/token', 'utf8').trim() : '')
+
+// ── --sandbox: a private server that lives exactly as long as this client ──
+let child = null, sandboxDir = null, quitting = false
+async function quit(code = 0) {
+  if (quitting) return
+  quitting = true
+  if (child && child.exitCode === null) {
+    child.kill('SIGTERM')  // the server saves app state on SIGTERM, then exits
+    await new Promise((r) => { const t = setTimeout(r, 3000); child.once('exit', () => { clearTimeout(t); r() }) })
+  }
+  if (sandboxDir) rmSync(sandboxDir, { recursive: true, force: true })
+  process.exit(code)
+}
+process.on('SIGINT', () => quit(130))
+process.on('SIGTERM', () => quit(143))
+
+if (sandbox) {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const port = await new Promise((ok, fail) => {
+    const s = createServer(); s.on('error', fail)
+    s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)) })
+  })
+  sandboxDir = mkdtempSync(join(tmpdir(), 'omni-sandbox-'))
+  const liveConfig = join(process.env.OMNI_DATA_DIR || join(root, 'data'), 'config.json')
+  if (existsSync(liveConfig)) copyFileSync(liveConfig, join(sandboxDir, 'config.json'))
+  token = randomBytes(8).toString('hex')
+  url = `ws://127.0.0.1:${port}/ws`
+  const logStream = createWriteStream(join(sandboxDir, 'server.log'))
+  const recent = []
+  let buf = ''
+  const relay = (chunk) => {
+    logStream.write(chunk); buf += chunk
+    const lines = buf.split('\n'); buf = lines.pop()
+    for (const l of lines) {
+      recent.push(l); if (recent.length > 30) recent.shift()
+      if (verbose || /\[(error|warn)\]/.test(l)) console.error(`server│ ${l}`)
+    }
+  }
+  // The marker argument is ignored by the server; it makes the process findable.
+  child = spawn(process.execPath, [join(root, 'server', 'index.ts'), `--omni-sandbox=${sandboxDir}`], {
+    cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', OMNI_DATA_DIR: sandboxDir, OMNI_TOKEN: token, PUBLIC_URL: `http://127.0.0.1:${port}` },
+  })
+  child.stdout.on('data', relay); child.stderr.on('data', relay)
+  child.on('exit', (code, sig) => { if (!quitting) { console.error(`sandbox server exited (${sig || code}):\n${recent.join('\n')}`); quit(1) } })
+  const deadline = Date.now() + 20000
+  for (let ready = false; !ready;) {
+    if (child.exitCode !== null) await new Promise(() => {})  // the exit handler is quitting
+    try { ready = (await fetch(`http://127.0.0.1:${port}/healthz`)).ok } catch {}
+    if (!ready) {
+      if (Date.now() > deadline) { console.error(`sandbox server did not come up:\n${recent.join('\n')}`); await quit(1) }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+  }
+  console.error(`sandbox server http://127.0.0.1:${port}  token ${token}  data ${sandboxDir}`)
+  console.error(`  curl -s -H "Authorization: Bearer ${token}" http://127.0.0.1:${port}/api/screen`)
+}
+
 const ws = new WebSocket(`${url}?token=${encodeURIComponent(token)}`)
 let page = null, created = false
 
@@ -50,8 +126,8 @@ ws.on('message', (data, isBinary) => {
   if (op === 'shutdown') { console.log(`[shutdown mode=${args.mode}]`); return reply(id, true, true) }
   console.log(`[${op}]`, JSON.stringify(args).slice(0, 100)); reply(id, true, true)
 })
-ws.on('close', () => { console.log('closed'); process.exit(0) })
-ws.on('error', (e) => { console.error('error', e.message); process.exit(1) })
+ws.on('close', () => { console.log('closed'); quit(0) })
+ws.on('error', (e) => { console.error('error', e.message); quit(1) })
 // FAKE_LATENCY=<ms> delays every result, like a slow BLE link.
 const latency = Number(process.env.FAKE_LATENCY) || 0
 const reply = (id, ok, value) => setTimeout(() => ws.send(JSON.stringify({ t: 'result', id, ok, value })), latency)
@@ -61,10 +137,10 @@ const send = (ev) => { const f = JSON.stringify({ t: 'event', ev }); if (ws.read
 ws.on('open', () => { for (const f of queued) ws.send(f); queued.length = 0 })
 
 const rl = createInterface({ input: process.stdin })
-rl.on('close', () => process.exit(0))
+rl.on('close', () => quit(0))
 rl.on('line', (line) => {
   const k = line.trim()
-  if (k === 'q') process.exit(0)
+  if (k === 'q') return quit(0)
   if (k.startsWith('{')) { try { send(JSON.parse(k)) } catch (e) { console.error('bad json', e.message) } return }
   if (k === 't') send({ sysEvent: {} })
   if (k === 'd') send({ sysEvent: { eventType: 3 } })

@@ -35,6 +35,19 @@ as it would be drawn and takes gestures on stdin (`t` tap, `d` double, `u`/`w` u
 `l`/`r` long-press/release, `s<N>` select list item, `m<N>` menu item). Use it to test an app
 end-to-end before telling the user it works. `npm run typecheck` must pass.
 
+**Prefer `npm run fake-client -- --sandbox`** whenever real glasses may be connected: the
+fake client and the phone otherwise share one session, so every test gesture moves the
+user's screen. `--sandbox` starts a private server instance (free port, own data dir and
+token, the live `data/config.json` copied in so gestures and `homeApp` match, the same
+`apps/`) and kills it when the client exits. It prints the sandbox's API URL and token on
+stderr, so `curl …/api/screen` and `/api/logs` work against it too.
+
+For anything the text dump cannot answer (glyph shapes, exact pixel geometry, whether a
+page the firmware might reject renders at all), `scripts/simulator.sh` runs the client in the
+Even Hub simulator headless against its own throwaway server: `GET :9898/api/screenshot/glasses`
+is the real 576×288 framebuffer (RGBA, alpha > 0 = lit), `POST :9898/api/input {"action":"up"}`
+drives it. `@evenrealities/pretext` (`ctx.ui.width/wrap/fit`) knows glyph *widths* only.
+
 ## Pushing to the glasses directly
 
 ```bash
