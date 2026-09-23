@@ -1,6 +1,7 @@
 # Writing apps
 
-An app is one module in `apps/`: `apps/<id>.js`, `apps/<id>.ts`, or a folder
+An app is one module in `apps/` (or in any folder listed in `data/app-roots`, see
+[below](#apps-that-live-in-other-projects)): `apps/<id>.js`, `apps/<id>.ts`, or a folder
 `apps/<id>/index.{js,ts}` with any helper files next to it. The server watches the folder:
 save a file and the glasses update within a second; delete it and the app disappears. Load,
 init and render errors are shown on the glasses instead of crashing anything. The types live
@@ -228,6 +229,33 @@ phone page plays, downloads and deletes the WAV memos recorded on the glasses.
 
 All require the bearer token (`Authorization: Bearer …` or `?token=…`, which is how webhooks
 from third-party services authenticate).
+
+## Apps that live in other projects
+
+Apps do not have to sit in `apps/`. Any folder can be an *app root*: list its absolute path
+in `data/app-roots` (git-ignored; one path per line, `#` comments, `~/` allowed) and Omni
+loads it too. The server watches that file, so saving it applies at once, no restart; a
+listed folder that does not exist yet is picked up when it appears.
+
+All roots behave like **one merged folder**, in list order with `apps/` first. Sub-folders
+become home-screen folders exactly as in `apps/`, `group:` overrides as usual, and ids are
+the file names, unique across the merged set. On a clash the **later root wins**: its entry
+replaces the earlier one's (same relative path, or just the same id at another path), and
+the replaced file is listed as `shadows` on the winning app in `GET /api/apps`. A project
+further down the list can therefore override any app, including those in `apps/`. Roots
+may not nest.
+
+Omni dictates nothing about the other project's layout: `~/projects/lifebot/src/glasses`
+is as good a root as any. Inside it `lifebot.js` shows at the top level and
+`tools/lifebot.js` under *tools*. Imports resolve from where the file is, so the project's
+own `node_modules` and helpers are available, and helper edits hot-reload like in `apps/`.
+`ctx.state` and `ctx.dataDir` are keyed by app id, so a root can move without losing
+anything. The JSDoc type reference is relative to the file,
+`/** @type {import('<path to omnieven>/shared/app.ts').OmniApp} */`, and type-only: a wrong
+path costs editor hints, nothing at runtime.
+
+`GET /api/status` lists the roots with the ids each one provides. `npm run fake-client --
+--sandbox` copies `data/app-roots` into the sandbox, so it sees the same folders.
 
 ## Testing without hardware
 

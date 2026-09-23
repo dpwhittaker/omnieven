@@ -11,6 +11,11 @@ usually be asked to **add or change an app** or to **put something on the glasse
   edit `demo/` to change what the user sees; edit or add files in `apps/`. Sub-folders of
   `apps/` (or `group: 'Name/Sub'`) become folders on the home screen; a folder with
   `index.js` is a single app with helpers.
+- Other projects keep their glasses apps in their own tree: their folder's absolute path
+  goes in `data/app-roots` (git-ignored, one per line) and it loads like `apps/`. All roots
+  form one merged folder with the same folder/group rules; on an id clash the later line
+  wins (and can so override anything, `apps/` included). Saving the file applies it.
+  `GET /api/status` lists the roots. See `docs/APPS.md` → "Apps that live in other projects".
 - Saving a file in `apps/` hot-reloads it (~1 s). No build, no restart. Errors render on the
   glasses and appear in `GET /api/logs`.
 - Views are declarative (`string` | `{text}` | `{list}` | `{containers:[…]}`); the server diffs
@@ -38,8 +43,8 @@ end-to-end before telling the user it works. `npm run typecheck` must pass.
 **Prefer `npm run fake-client -- --sandbox`** whenever real glasses may be connected: the
 fake client and the phone otherwise share one session, so every test gesture moves the
 user's screen. `--sandbox` starts a private server instance (free port, own data dir and
-token, the live `data/config.json` copied in so gestures and `homeApp` match, the same
-`apps/`) and kills it when the client exits. It prints the sandbox's API URL and token on
+token, the live `data/config.json` and `data/app-roots` copied in so gestures, `homeApp`
+and the app folders match) and kills it when the client exits. It prints the sandbox's API URL and token on
 stderr, so `curl …/api/screen` and `/api/logs` work against it too.
 
 For anything the text dump cannot answer (glyph shapes, exact pixel geometry, whether a

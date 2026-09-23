@@ -62,7 +62,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
         version: VERSION, uptimeSec: Math.round((Date.now() - started) / 1000),
         connections: [...shell.connections].map((c) => c.summary()),
         active: shell.activeId, scratch: !!shell.scratch, blank: shell.blank, overlay: shell.overlay ? { text: shell.overlay.text } : null,
-        apps: shell.appSummaries(), lastEvent: shell.lastEvent,
+        apps: shell.appSummaries(), roots: shell.registry.rootSummaries(), lastEvent: shell.lastEvent,
       }); return true
     }
     if (m === 'GET' && path === '/apps') { sendJson(res, 200, { apps: shell.appSummaries() }); return true }

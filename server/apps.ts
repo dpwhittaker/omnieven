@@ -1,15 +1,19 @@
-// Loads app modules from the apps directory and hot-reloads them on change.
-// An app is `apps/<id>.js|.ts` or `apps/<id>/index.js|.ts` (files it imports
-// live next to it). An app's `state` (persisted JSON) and `mem` (volatile)
-// survive a reload, so editing a file never loses what the user was looking at.
+// Loads app modules from the app roots and hot-reloads them on change.
+// An app is `<root>/<id>.js|.ts` or `<root>/<id>/index.js|.ts` (files it imports
+// live next to it). The roots are apps/ plus every folder listed in
+// data/app-roots, treated as one merged folder: a later root's entry replaces
+// an earlier root's with the same id (normally the same relative path). An
+// app's `state` (persisted JSON) and `mem` (volatile) survive a reload, so
+// editing a file never loses what the user was looking at.
 import { EventEmitter } from 'node:events'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AppContext, OmniApp } from '../shared/app.ts'
 import type { DeviceInfo, UserInfo, AppLocation } from '../shared/protocol.ts'
 import type { MenuItem } from '../shared/view.ts'
-import { DATA_DIR, DEMO_DIR } from './config.ts'
+import { APP_ROOTS_FILE, DATA_DIR, DEMO_DIR } from './config.ts'
 import { log } from './log.ts'
 import { Canvas } from './png.ts'
 import { SCREEN } from './renderer.ts'
@@ -56,6 +60,8 @@ export interface LoadedApp {
   menu: MenuItem[]
   /** group implied by the folder (before any `group` override in the module) */
   folderGroup: string
+  /** same-id entries in earlier roots that this one replaces */
+  shadows: string[]
   /** numeric menu id → app's own id, rebuilt every render by the shell */
   menuMap?: Map<number, string>
   /** other-app menu rows: item id → app id */
@@ -87,13 +93,40 @@ function normalizeGroup(g: string): string {
   return g.split(/[\/\\]+/).map((p) => p.trim()).filter(Boolean).join('/')
 }
 
+const ROOTS_HEADER = `# Extra folders Omni loads apps from: one absolute path per line, in order.
+# They and apps/ behave like a single merged folder; on a clash (same app id)
+# the later folder wins. Saving this file applies it, no restart. See docs/APPS.md.
+`
+
+/** Parse data/app-roots: one absolute path (~/ allowed) per line, # comments. */
+export function readRootsFile(file = APP_ROOTS_FILE): string[] {
+  let text = ''
+  try { text = readFileSync(file, 'utf8') } catch { return [] }
+  const out: string[] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const p = resolve(line === '~' || line.startsWith('~/') ? join(homedir(), line.slice(1)) : line)
+    if (!out.includes(p)) out.push(p)
+  }
+  return out
+}
+
+interface ScanEntry { id: string; file: string; group: string; shadows: string[] }
+export interface RootSummary { dir: string; base: boolean; missing: boolean; apps: string[] }
+
 export class AppRegistry extends EventEmitter {
   readonly apps = new Map<string, LoadedApp>()
   private reloadTimers = new Map<string, NodeJS.Timeout>()
 
+  /** the base folder (apps/), always the first root */
   readonly dir: string
+  /** every folder apps come from, in precedence order: later shadows earlier */
+  roots: string[]
+  /** listed roots that do not exist (yet); polled for until they do */
+  private missingRoots = new Set<string>()
   readonly host: AppHost
-  constructor(dir: string, host: AppHost) { super(); this.dir = dir; this.host = host }
+  constructor(dir: string, host: AppHost) { super(); this.dir = dir; this.roots = [dir]; this.host = host }
 
   list(): LoadedApp[] {
     return [...this.apps.values()]
@@ -152,21 +185,67 @@ export class AppRegistry extends EventEmitter {
     return out
   }
 
+  /**
+   * (Re)read data/app-roots and apply it: roots that appeared are watched
+   * (once watching) and roots that went are unwatched. The caller rescans.
+   */
+  loadRoots(): { added: string[]; removed: string[] } {
+    if (!existsSync(APP_ROOTS_FILE)) { try { writeFileSync(APP_ROOTS_FILE, ROOTS_HEADER) } catch {} }
+    const wanted = [this.dir]
+    for (const p of readRootsFile()) {
+      const clash = wanted.find((r) => p === r || p.startsWith(r + sep) || r.startsWith(p + sep))
+      if (clash) { if (p !== this.dir) log('warn', `app root ${p} is inside or contains ${clash}; ignored`); continue }
+      wanted.push(p)
+    }
+    const added = wanted.filter((r) => !this.roots.includes(r))
+    const removed = this.roots.filter((r) => !wanted.includes(r))
+    this.roots = wanted
+    for (const r of removed) { this.unwatchRoot(r); this.missingRoots.delete(r); log('apps', `root removed: ${r}`) }
+    for (const r of added) {
+      if (existsSync(r)) log('apps', `root added: ${r}`)
+      else log('warn', `app root ${r} does not exist (listed in ${APP_ROOTS_FILE}); waiting for it`)
+      if (this.watching) this.watchRoot(r); else if (!existsSync(r)) this.missingRoots.add(r)
+    }
+    return { added, removed }
+  }
+
+  /**
+   * All roots walked as one merged folder. Within a root a duplicate id is a
+   * mistake (first wins, warned); across roots it is the overlay: the later
+   * root's entry wins and records what it shadows.
+   */
+  scanAll(): ScanEntry[] {
+    const byId = new Map<string, ScanEntry>()
+    for (const root of this.roots) {
+      const seen = new Map<string, string>()
+      for (const e of this.scan(root)) {
+        const dup = seen.get(e.id)
+        if (dup) { log('warn', `app id "${e.id}" used by both ${dup} and ${e.file}; ignoring the latter`); continue }
+        seen.set(e.id, e.file)
+        const prev = byId.get(e.id)
+        byId.set(e.id, { ...e, shadows: prev ? [prev.file, ...prev.shadows] : [] })
+      }
+    }
+    return [...byId.values()]
+  }
+
   async loadAll(): Promise<void> {
     mkdirSync(this.dir, { recursive: true })
+    this.loadRoots()
     await this.rescan()
   }
 
-  /** Load new/changed entries, unload apps whose file is gone, flag duplicate ids. */
+  /** Load new/changed entries; unload apps whose entry is gone or now shadowed. */
   async rescan(): Promise<void> {
-    const found = this.scan()
-    const seen = new Map<string, string>()
+    const found = this.scanAll()
+    const seen = new Set<string>()
     for (const e of found) {
-      const dup = seen.get(e.id)
-      if (dup) { log('warn', `app id "${e.id}" used by both ${dup} and ${e.file}; ignoring the latter`); continue }
-      seen.set(e.id, e.file)
+      seen.add(e.id)
       const cur = this.apps.get(e.id)
-      if (!cur || cur.file !== e.file || cur.folderGroup !== e.group) await this.load(e.id, e.file, e.group)
+      if (!cur || cur.file !== e.file || cur.folderGroup !== e.group) {
+        if (e.shadows.length) log('apps', `${e.file} shadows ${e.shadows.join(', ')}`)
+        await this.load(e.id, e.file, e.group, e.shadows)
+      }
     }
     for (const [id, app] of this.apps) {
       if (app.file.startsWith('<builtin')) continue
@@ -174,9 +253,10 @@ export class AppRegistry extends EventEmitter {
     }
   }
 
-  async load(id: string, file: string, folderGroup?: string): Promise<void> {
+  async load(id: string, file: string, folderGroup?: string, shadows?: string[]): Promise<void> {
     const prev = this.apps.get(id)
     if (folderGroup === undefined) folderGroup = prev?.folderGroup ?? this.groupOfPath(file)
+    if (shadows === undefined) shadows = prev?.file === file ? prev.shadows : []
     let mod: OmniApp
     try {
       const url = pathToFileURL(file).href + `?v=${Date.now()}`
@@ -186,7 +266,7 @@ export class AppRegistry extends EventEmitter {
     } catch (err) {
       log('error', `app ${id}: ${(err as Error).message}`)
       // Keep the app listed with its error so the failure shows on the glasses.
-      const broken: LoadedApp = prev ? { ...prev } : this.blank(id, file)
+      const broken: LoadedApp = prev ? { ...prev, file, dir: dirname(file), shadows } : this.blank(id, file)
       broken.loadError = (err as Error).message
       this.apps.set(id, broken)
       this.emit('changed', id)
@@ -200,6 +280,7 @@ export class AppRegistry extends EventEmitter {
     app.refresh = Number(mod.refresh) > 0 ? Number(mod.refresh) : 0
     app.hidden = !!mod.hidden
     app.folderGroup = folderGroup
+    app.shadows = shadows
     app.group = normalizeGroup(typeof mod.group === 'string' ? mod.group : folderGroup)
     app.menu = Array.isArray(mod.menu) ? mod.menu : []
     app.state = prev ? prev.state : loadState(id)
@@ -217,16 +298,31 @@ export class AppRegistry extends EventEmitter {
   }
 
   private blank(id: string, file: string): LoadedApp {
-    return { id, file, dir: dirname(file), mod: null, title: id, order: 100, refresh: 0, hidden: false, group: '', folderGroup: '', menu: [], state: {}, mem: {}, timers: new Set(), error: null, loadError: null, ctx: null }
+    return { id, file, dir: dirname(file), mod: null, title: id, order: 100, refresh: 0, hidden: false, group: '', folderGroup: '', menu: [], shadows: [], state: {}, mem: {}, timers: new Set(), error: null, loadError: null, ctx: null }
   }
 
-  /** Group implied by where a file sits under apps/. */
+  /** The root a file lives in, if any. */
+  rootOf(file: string): string | null {
+    return this.roots.find((r) => file.startsWith(r + sep)) ?? null
+  }
+
+  /** Group implied by where a file sits under its root. */
   private groupOfPath(file: string): string {
-    const rel = dirname(file).slice(this.dir.length + 1)
+    const root = this.rootOf(file)
+    if (!root) return ''
+    const rel = dirname(file).slice(root.length + 1)
     const parts = rel ? rel.split(sep) : []
     // a directory app (…/<id>/index.js) does not count its own folder
-    if (parts.length && this.entryAt(join(this.dir, ...parts))) parts.pop()
+    if (parts.length && this.entryAt(join(root, ...parts))) parts.pop()
     return parts.join('/')
+  }
+
+  /** Roots in precedence order with the ids each one currently provides. */
+  rootSummaries(): RootSummary[] {
+    return this.roots.map((dir) => ({
+      dir, base: dir === this.dir, missing: this.missingRoots.has(dir),
+      apps: [...this.apps.values()].filter((a) => this.rootOf(a.file) === dir).map((a) => a.id).sort(),
+    }))
   }
 
   /** Apps grouped for the home screen: nested folders + apps at each level. */
@@ -323,58 +419,88 @@ export class AppRegistry extends EventEmitter {
   }
 
   /**
-   * Watch the apps dir. Node's recursive fs.watch is unreliable on Linux, so a
-   * plain watcher is placed on every directory (re-scanned whenever a
-   * directory entry changes) and any event inside an app schedules a reload.
+   * Watch every root, and data/app-roots for the list itself. Node's recursive
+   * fs.watch is unreliable on Linux, so a plain watcher is placed on every
+   * directory (re-scanned whenever a directory entry changes) and any event
+   * inside an app schedules a reload. A listed root that does not exist yet is
+   * polled for until it does.
    */
   watch(): void {
-    if (this.watchers.size) return
-    this.watchDir(this.dir)
-    log('apps', `watching ${this.dir}`)
+    if (this.watching) return
+    this.watching = true
+    for (const r of this.roots) this.watchRoot(r)
+    try {
+      const w = watch(dirname(APP_ROOTS_FILE), (_event, filename) => {
+        if (String(filename) === basename(APP_ROOTS_FILE)) this.schedule('<roots>', () => { this.loadRoots(); void this.rescan() })
+      })
+      w.on('error', () => w.close())
+    } catch (err) { log('warn', `cannot watch ${APP_ROOTS_FILE}: ${(err as Error).message}`) }
+    setInterval(() => {
+      for (const r of this.missingRoots) {
+        if (!existsSync(r)) continue
+        this.missingRoots.delete(r); log('apps', `root appeared: ${r}`); this.watchRoot(r)
+        this.schedule('<roots>', () => void this.rescan())
+      }
+    }, 5000).unref()
+    log('apps', `watching ${this.roots.join(', ')}`)
   }
 
+  private watching = false
   private watchers = new Map<string, FSWatcher>()
 
-  private watchDir(dir: string): void {
+  private watchRoot(root: string): void {
+    if (!existsSync(root)) { this.missingRoots.add(root); return }
+    this.watchDir(root, root)
+  }
+  private unwatchRoot(root: string): void {
+    for (const [p, w] of this.watchers) if (p === root || p.startsWith(root + sep)) { w.close(); this.watchers.delete(p) }
+  }
+
+  private watchDir(root: string, dir: string): void {
     if (this.watchers.has(dir)) return
     try {
-      const w = watch(dir, (_event, filename) => this.onFsEvent(dir, filename ? String(filename) : ''))
+      const w = watch(dir, (_event, filename) => this.onFsEvent(root, dir, filename ? String(filename) : ''))
       w.on('error', () => { this.watchers.delete(dir); w.close() })
       this.watchers.set(dir, w)
     } catch { return }
     for (const name of readdirSync(dir, { withFileTypes: true })) {
-      if (name.isDirectory() && !name.name.startsWith('.') && name.name !== 'node_modules') this.watchDir(join(dir, name.name))
+      if (name.isDirectory() && !name.name.startsWith('.') && name.name !== 'node_modules') this.watchDir(root, join(dir, name.name))
     }
   }
 
-  private onFsEvent(dir: string, filename: string): void {
+  /** Debounced: one `fn` per key, 150 ms after the last event. */
+  private schedule(key: string, fn: () => void): void {
+    const prev = this.reloadTimers.get(key)
+    if (prev) clearTimeout(prev)
+    this.reloadTimers.set(key, setTimeout(() => { this.reloadTimers.delete(key); fn() }, 150))
+  }
+
+  private onFsEvent(root: string, dir: string, filename: string): void {
     if (filename.startsWith('.')) return
     const full = join(dir, filename)
     // New directory → watch it too (and its children).
-    try { if (statSync(full).isDirectory()) this.watchDir(full) } catch {
+    try { if (statSync(full).isDirectory()) this.watchDir(root, full) } catch {
       // Gone (deleted or moved away): close its watcher and every descendant's —
       // a rename fires only on the parent, so the subtree's watchers would
       // otherwise follow the inodes forever.
       for (const [p, w] of this.watchers) if (p === full || p.startsWith(full + sep)) { w.close(); this.watchers.delete(p) }
     }
-    // Which app owns this path? Walk up until an app entry (file, or a
+    // Which app entry owns this path? Walk up until an app entry (file, or a
     // directory with index.*) is found; otherwise it is a group-level change.
     // Walk top-down so helper files inside an app folder map to that app
     // rather than being mistaken for apps of their own.
-    let owner: string | null = null
-    const parts = full.slice(this.dir.length + 1).split(sep)
+    let entry: { id: string; file: string } | null = null
+    const parts = full.slice(root.length + 1).split(sep)
     for (let i = 1; i <= parts.length; i++) {
-      const e = this.entryAt(join(this.dir, ...parts.slice(0, i)))
-      if (e) { owner = e.id; break }
+      const e = this.entryAt(join(root, ...parts.slice(0, i)))
+      if (e) { entry = e; break }
     }
-    const key = owner ?? '*'
-    const prev = this.reloadTimers.get(key)
-    if (prev) clearTimeout(prev)
-    this.reloadTimers.set(key, setTimeout(() => {
-      this.reloadTimers.delete(key)
-      const app = owner ? this.apps.get(owner) : null
-      if (app && existsSync(app.file)) void this.load(app.id, app.file)
+    this.schedule(entry ? entry.file : '*', () => {
+      const app = entry ? this.apps.get(entry.id) : null
+      // Reload in place only when the loaded app is this very entry. A change to
+      // an entry that a later root shadows, or a new/removed entry, is a rescan.
+      if (entry && app && app.file === entry.file && existsSync(entry.file)) void this.load(app.id, app.file)
       else void this.rescan()
-    }, 150))
+    })
   }
 }

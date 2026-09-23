@@ -23,7 +23,7 @@ const RENDER_DEBOUNCE_MS = 30
 const DEFAULT_NOTIFY_MS = 5000
 
 interface Overlay { text: string; title?: string; timer: NodeJS.Timeout }
-export interface AppSummary { id: string; title: string; order: number; refresh: number; error: string | null; active: boolean; menu: MenuItem[]; file: string; group: string; phone: boolean; settings: boolean }
+export interface AppSummary { id: string; title: string; order: number; refresh: number; error: string | null; active: boolean; menu: MenuItem[]; file: string; shadows: string[]; group: string; phone: boolean; settings: boolean }
 
 export class Shell extends EventEmitter {
   readonly connections = new Set<Connection>()
@@ -201,7 +201,7 @@ export class Shell extends EventEmitter {
   appSummaries(): AppSummary[] {
     return this.registry.list().map((a) => ({
       id: a.id, title: a.title, order: a.order, refresh: a.refresh, error: a.loadError || a.error,
-      active: this.isActive(a.id), menu: a.menu, file: a.file, group: a.group,
+      active: this.isActive(a.id), menu: a.menu, file: a.file, shadows: a.shadows, group: a.group,
       phone: typeof a.mod?.phone === 'function', settings: !!a.mod?.settings?.length,
     }))
   }

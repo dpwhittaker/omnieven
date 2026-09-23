@@ -85,8 +85,13 @@ gh repo create my-omni-apps --private --source=. --push      # or add any remote
 
 On another machine: clone Omni, then clone your apps repo *as* `apps/` (or point
 `OMNI_APPS_DIR` at it). `demo/` stays in the Omni repo as the starter set (copied into
-`apps/` only when it is empty). See [`docs/APPS.md`](docs/APPS.md) for the app API; a complete
-app can be:
+`apps/` only when it is empty).
+
+Apps can also stay inside the projects they belong to: list any folder's absolute path in
+`data/app-roots` (git-ignored, one per line) and Omni loads it alongside `apps/` as one merged
+set, later entries shadowing earlier ones on an id clash, so a project further down the
+list can override anything. See [`docs/APPS.md`](docs/APPS.md#apps-that-live-in-other-projects).
+See [`docs/APPS.md`](docs/APPS.md) for the app API; a complete app can be:
 
 ```js
 export default { title: 'Hello', render: () => 'Hello, glasses!' }

@@ -4,8 +4,8 @@
 // Usage: node scripts/fake-client.mjs [ws://localhost:7788/ws] [token]
 //        node scripts/fake-client.mjs --sandbox [--verbose]
 //   --sandbox starts a private server instance for this session — a free port, its
-//   own data dir and token (the live data/config.json is copied in so gestures and
-//   homeApp match), the same apps/ — and kills it when the client exits, so a test
+//   own data dir and token (the live data/config.json and data/app-roots are copied
+//   in so gestures, homeApp and the app folders match) — and kills it when the client exits, so a test
 //   never moves the real glasses. The sandbox's API URL + token are printed on
 //   stderr for curl. --verbose relays the whole server log; otherwise only its
 //   errors and warnings. (Killed with SIGKILL? `pkill -f omni-sandbox` reaps the server.)
@@ -52,8 +52,8 @@ if (sandbox) {
     s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)) })
   })
   sandboxDir = mkdtempSync(join(tmpdir(), 'omni-sandbox-'))
-  const liveConfig = join(process.env.OMNI_DATA_DIR || join(root, 'data'), 'config.json')
-  if (existsSync(liveConfig)) copyFileSync(liveConfig, join(sandboxDir, 'config.json'))
+  const liveData = process.env.OMNI_DATA_DIR || join(root, 'data')
+  for (const f of ['config.json', 'app-roots']) if (existsSync(join(liveData, f))) copyFileSync(join(liveData, f), join(sandboxDir, f))
   token = randomBytes(8).toString('hex')
   url = `ws://127.0.0.1:${port}/ws`
   const logStream = createWriteStream(join(sandboxDir, 'server.log'))

@@ -22,6 +22,8 @@ loadDotEnv()
 
 export const DATA_DIR = resolve(process.env.OMNI_DATA_DIR || join(ROOT, 'data'))
 export const APPS_DIR = resolve(process.env.OMNI_APPS_DIR || join(ROOT, 'apps'))
+/** Extra app folders, one absolute path per line; later lines shadow earlier ones and apps/. */
+export const APP_ROOTS_FILE = join(DATA_DIR, 'app-roots')
 export const DEMO_DIR = join(ROOT, 'demo')
 export const CLIENT_DIST = join(ROOT, 'client', 'dist')
 export const PORT = Number(process.env.PORT || 7788)

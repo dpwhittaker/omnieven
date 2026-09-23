@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws'
 import qrcodeTerminal from 'qrcode-terminal'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ClientFrame } from '../shared/protocol.ts'
-import { APPS_DIR, CLIENT_DIST, DATA_DIR, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, clientAppUrl, wsUrl } from './config.ts'
+import { APPS_DIR, APP_ROOTS_FILE, CLIENT_DIST, DATA_DIR, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, clientAppUrl, wsUrl } from './config.ts'
 import { Connection } from './connection.ts'
 import { Shell } from './shell.ts'
 import { handleApi, sendJson } from './api.ts'
@@ -16,8 +16,9 @@ import { log } from './log.ts'
 
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.map': 'application/json' }
 
-// Cache-bust imports inside apps/ so nested helper files hot-reload too.
-register('./loader-hooks.ts', { parentURL: import.meta.url, data: { appsDir: APPS_DIR } })
+// Cache-bust everything apps import so nested helper files hot-reload too, in
+// every app root; Omni's own modules stay single instances.
+register('./loader-hooks.ts', { parentURL: import.meta.url, data: { keep: [join(ROOT, 'server'), join(ROOT, 'shared')] } })
 
 const shell = new Shell({ appsDir: APPS_DIR })
 
@@ -175,7 +176,10 @@ server.listen(PORT, HOST, () => {
   console.log(`  websocket  : ${wsUrl()}`)
   console.log(`  setup page : ${setup}`)
   console.log(`  token      : ${TOKEN}`)
-  console.log(`  apps dir   : ${APPS_DIR}  (${shell.registry.list().map((a) => a.id).join(', ') || 'empty'})`)
+  for (const r of shell.registry.rootSummaries()) {
+    console.log(`  ${r.base ? 'apps dir   ' : '  + root   '}: ${r.dir}${r.missing ? '  (missing)' : ''}  (${r.apps.join(', ') || 'empty'})`)
+  }
+  console.log(`  app roots  : ${APP_ROOTS_FILE}`)
   if (!existsSync(CLIENT_DIST)) console.log('  WARNING    : client not built — run `npm run build:client`')
   console.log('\nScan with the Even app (Even Hub → Developer → Scan QR):')
   qrcodeTerminal.generate(clientAppUrl(), { small: true })
