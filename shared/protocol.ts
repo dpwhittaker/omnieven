@@ -46,8 +46,10 @@ export interface CmdArgs {
   'storage.set': { key: string; value: string }
   /** shutDownPageContainer; 1 = system exit dialog, 0 = immediate */
   shutdown: { mode: 0 | 1 }
-  /** reload the WebView page */
-  reload: Record<string, never>
+  /** reload the WebView — at `url` when given (the versioned client URL; a plain reload replays the WebView's cache) */
+  reload: { url?: string }
+  /** bridge.callEvenApp(method, params): any Even App method by name — an escape hatch for POST /api/cmd */
+  call: { method: string; params?: unknown }
 }
 export type CmdOp = keyof CmdArgs
 export type Cmd<O extends CmdOp = CmdOp> = { [K in O]: { t: 'cmd'; id: number; op: K; args: CmdArgs[K] } }[O]

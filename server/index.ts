@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws'
 import qrcodeTerminal from 'qrcode-terminal'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ClientFrame } from '../shared/protocol.ts'
-import { APPS_DIR, CLIENT_DIST, DATA_DIR, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.ts'
+import { APPS_DIR, CLIENT_DIST, DATA_DIR, HOST, PORT, PUBLIC_URL, ROOT, TOKEN, VERSION, clientAppUrl, wsUrl } from './config.ts'
 import { Connection } from './connection.ts'
 import { Shell } from './shell.ts'
 import { handleApi, sendJson } from './api.ts'
@@ -29,7 +29,7 @@ function tokenOf(req: IncomingMessage, url: URL): string {
 
 function serveStatic(res: ServerResponse, file: string): boolean {
   if (!existsSync(file) || !statSync(file).isFile()) return false
-  res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' })
+  res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' })
   createReadStream(file).pipe(res)
   return true
 }
@@ -42,6 +42,9 @@ const server = createServer(async (req, res) => {
     if (p === '/app.json' || p === '/app/app.json') { sendJson(res, 200, manifest()); return }
     if (p === '/app' ) { res.writeHead(302, { Location: '/app/' + url.search }); res.end(); return }
     if (p.startsWith('/app/')) {
+      // Worth a log line: the Even App caches the client aggressively, so
+      // "did the phone fetch the new bundle?" is a recurring question.
+      if (p === '/app/' || p.endsWith('.html')) log('http', `client page ${req.method} ${req.url} from ${req.socket.remoteAddress}`)
       if (!existsSync(CLIENT_DIST)) { res.writeHead(503, { 'Content-Type': 'text/plain' }); res.end('client not built: run `npm run build:client`'); return }
       const rel = normalize(p.slice(5)).replace(/^(\.\.[/\\])+/, '')
       const file = join(CLIENT_DIST, rel || 'index.html')
@@ -135,7 +138,17 @@ wss.on('connection', (ws, req) => {
         break
       case 'result': conn.handleResult(frame); break
       case 'event': shell.handleEvent(conn, frame.ev); break
-      case 'device': conn.device = { ...(conn.device || {}), status: frame.status }; shell.emit('device', frame.status); break
+      case 'device': {
+        // The Even app pushes status changes with only a serial to say whose they
+        // are. Keep the glasses' (the serial from getDeviceInfo) apart from any other
+        // device's — the ring, if it reports at all — and log each push to find out.
+        const st = frame.status, sn = st?.sn, own = conn.device?.sn
+        log('device', `conn ${conn.id} status sn=${sn ?? '?'}${own && sn && sn !== own ? ' (not the glasses)' : ''} ${st?.connectType ?? ''} battery=${st?.batteryLevel ?? '?'} charging=${st?.isCharging ?? '?'} wearing=${st?.isWearing ?? '?'} inCase=${st?.isInCase ?? '?'}`)
+        if (own && sn && sn !== own) conn.others[sn] = st
+        else conn.device = { ...(conn.device || {}), status: st }
+        shell.emit('device', st)
+        break
+      }
       case 'location': shell.handleLocation(frame.loc); break
       case 'launch': conn.launchSource = frame.source; break
       case 'log': log(`client:${conn.id}`, `${frame.level}: ${frame.msg}`); break
@@ -165,7 +178,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  apps dir   : ${APPS_DIR}  (${shell.registry.list().map((a) => a.id).join(', ') || 'empty'})`)
   if (!existsSync(CLIENT_DIST)) console.log('  WARNING    : client not built — run `npm run build:client`')
   console.log('\nScan with the Even app (Even Hub → Developer → Scan QR):')
-  qrcodeTerminal.generate(`${PUBLIC_URL}/app/?token=${encodeURIComponent(TOKEN)}`, { small: true })
+  qrcodeTerminal.generate(clientAppUrl(), { small: true })
 })
 
 function shutdown(): void { shell.registry.saveAll(); process.exit(0) }

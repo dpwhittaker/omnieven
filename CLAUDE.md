@@ -80,7 +80,9 @@ for types, `.ts` extensions in relative imports, no `enum`/parameter properties.
 contract (`shared/protocol.ts`) is shared with the client; changing a `CmdOp` requires
 handling it in `client/src/main.ts` (the switch is exhaustive) and rebuilding the client
 (`npm run build:client`). A server change needs a restart (`npm start`, or however the
-user runs it); an app change does not.
+user runs it); an app change does not. A client change needs the rebuild and then
+`POST /api/client/reload`: the client URL carries a build tag, because the Even App's
+WebView replays a cached copy on a plain reload and never re-asks the server.
 
 ## Deployment facts the user may ask about
 

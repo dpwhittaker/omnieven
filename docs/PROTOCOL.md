@@ -26,7 +26,8 @@ s16le, mono) from the client while the mic is on.
 | `audio {on, source}` / `imu {on, pace}` / `location {once|on,…}` | device features |
 | `storage.get {key}` / `storage.set {key, value}` | Even App localStorage (the client keeps its own profile under `omni.url` / `omni.token`) |
 | `shutdown {mode}` | `shutDownPageContainer` (1 = system dialog, 0 = immediate) |
-| `reload` | reload the WebView |
+| `reload {url?}` | reload the WebView — at `url` when given (the server passes the client URL with its build tag; a plain reload replays the WebView's cache) |
+| `call {method, params?}` | `bridge.callEvenApp` — any Even App method by name; `POST /api/cmd {"op":"call","args":{"method":"getGlassesInfo"}}` |
 
 Commands run strictly one at a time on the client (the SDK shares one BLE link) with an
 8 s timeout each. The server serialises per connection and coalesces renders, keeping only

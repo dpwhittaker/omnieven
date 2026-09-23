@@ -3,7 +3,7 @@
 // glasses plus the simulator, say) can be driven from a single shell.
 import { EventEmitter } from 'node:events'
 import type { WebSocket } from 'ws'
-import type { ClientFrame, CmdArgs, CmdOp, DeviceInfo, HelloFrame, NormalizedEvent, ServerFrame, UserInfo } from '../shared/protocol.ts'
+import type { ClientFrame, CmdArgs, CmdOp, DeviceInfo, DeviceStatus, HelloFrame, NormalizedEvent, ServerFrame, UserInfo } from '../shared/protocol.ts'
 import type { View } from '../shared/view.ts'
 import { compile, diff, type Compiled } from './renderer.ts'
 import { log } from './log.ts'
@@ -16,6 +16,8 @@ interface Pending { resolve: (v: unknown) => void; reject: (e: Error) => void; t
 export interface ConnectionSummary {
   id: number; remote: string; connectedAt: number
   client: HelloFrame['client'] | null; device: DeviceInfo | null; user: UserInfo | null
+  /** status pushes whose serial is not the glasses' (the ring?), by serial */
+  others: Record<string, DeviceStatus>
   launchSource: string | null; pageCreated: boolean; audioOn: boolean; imuOn: boolean
 }
 
@@ -23,6 +25,7 @@ export class Connection extends EventEmitter {
   readonly id = nextConnId++
   readonly connectedAt = Date.now()
   device: DeviceInfo | null = null
+  others: Record<string, DeviceStatus> = {}
   user: UserInfo | null = null
   launchSource: string | null = null
   client: HelloFrame['client'] | null = null
@@ -136,7 +139,7 @@ export class Connection extends EventEmitter {
   summary(): ConnectionSummary {
     return {
       id: this.id, remote: this.remote, connectedAt: this.connectedAt,
-      client: this.client, device: this.device, user: this.user,
+      client: this.client, device: this.device, others: this.others, user: this.user,
       launchSource: this.launchSource, pageCreated: this.pageCreated,
       audioOn: this.audioOn, imuOn: this.imuOn,
     }

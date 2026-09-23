@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -46,6 +46,16 @@ export const TOKEN = loadToken()
 // the bind address). Used for the QR code, the app.json whitelist and the
 // default WebSocket URL baked into the client.
 export const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, '')
+
+/**
+ * The client's URL for the phone, carrying a fingerprint of the built bundle:
+ * the Even App's WebView replays a cached copy of /app/ on a plain reload and
+ * never re-asks the server, so only a changed URL delivers a new build.
+ */
+export function clientTag(): string {
+  try { return createHash('sha1').update(readFileSync(join(CLIENT_DIST, 'index.html'))).digest('hex').slice(0, 8) } catch { return '0' }
+}
+export function clientAppUrl(): string { return `${PUBLIC_URL}/app/?token=${encodeURIComponent(TOKEN)}&v=${clientTag()}` }
 
 export function wsUrl(): string {
   const u = new URL(PUBLIC_URL)

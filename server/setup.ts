@@ -2,10 +2,10 @@
 import QRCode from 'qrcode'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { PUBLIC_URL, ROOT, TOKEN, VERSION, wsUrl } from './config.ts'
+import { PUBLIC_URL, ROOT, TOKEN, VERSION, clientAppUrl, wsUrl } from './config.ts'
 
 export async function setupPage(): Promise<string> {
-  const appUrl = `${PUBLIC_URL}/app/?token=${encodeURIComponent(TOKEN)}`
+  const appUrl = clientAppUrl()
   const plainUrl = `${PUBLIC_URL}/app/`
   const qr = await QRCode.toString(appUrl, { type: 'svg', margin: 1, width: 260 })
   const api = `${PUBLIC_URL}/api`

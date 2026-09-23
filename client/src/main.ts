@@ -106,7 +106,11 @@ const sock = new OmniSocket({
   },
   onJson: (frame: ServerFrame) => {
     if (frame.t === 'ping') { sendFrame({ t: 'pong' }); return }
-    if (frame.t === 'welcome') { log(`server ${frame.serverVersion}`); return }
+    if (frame.t === 'welcome') {
+      log(`server ${frame.serverVersion}`)
+      log(`webview: ${navigator.userAgent.slice(0, 90)} · Web Bluetooth API: ${'bluetooth' in navigator ? 'present' : 'absent'}`)
+      return
+    }
     if (frame.t === 'error') { log(`server error: ${frame.msg}`, 'error'); return }
     if (frame.t === 'api') { const p = apiPending.get(frame.id); if (p) { apiPending.delete(frame.id); p(frame) } return }
     if (frame.t === 'cmd') {
@@ -275,7 +279,14 @@ async function runCmd(cmd: Cmd) {
       }
       case 'reload': {
         reply(true)
-        setTimeout(() => window.location.reload(), 200)
+        // A plain reload replays the WebView's cached copy of the client; a fresh URL does not.
+        const url = cmd.args?.url
+        setTimeout(() => { if (url) window.location.replace(url); else window.location.reload() }, 200)
+        return
+      }
+      case 'call': {
+        const r = await withTimeout(bridge.callEvenApp(String(cmd.args.method), cmd.args.params), `callEvenApp(${cmd.args.method})`)
+        reply(true, r)
         return
       }
       default: {

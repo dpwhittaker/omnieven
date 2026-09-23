@@ -5,7 +5,7 @@ import type { EventEmitter } from 'node:events'
 import type { HttpResponse } from '../shared/app.ts'
 import { compile } from './renderer.ts'
 import { recentLogs, onLog } from './log.ts'
-import { VERSION } from './config.ts'
+import { VERSION, clientAppUrl } from './config.ts'
 import type { Shell } from './shell.ts'
 
 const started = Date.now()
@@ -93,6 +93,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
         sub(shell, 'connection', (e) => write('connection', e)),
         sub(shell, 'apps', (e) => write('apps', e)),
         sub(shell, 'location', (e) => write('location', e)),
+        sub(shell, 'device', (e) => write('device', e)),
         sub(shell, 'config', (e) => write('config', e)),
       ]
       const hb = setInterval(() => { try { res.write(':hb\n\n') } catch {} }, 15000)
@@ -119,7 +120,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, url: 
       await shell.registry.loadAll(); shell.requestRender()
       sendJson(res, 200, { ok: true, apps: shell.appSummaries() }); return true
     }
-    if (m === 'POST' && path === '/client/reload') { await shell.broadcast('reload', {}); sendJson(res, 200, { ok: true }); return true }
+    if (m === 'POST' && path === '/client/reload') { await shell.broadcast('reload', { url: clientAppUrl() }); sendJson(res, 200, { ok: true }); return true }
     if (m === 'POST' && path === '/audio') { const b = await readJson(req); const r = await shell.registry.host.audio(!!b.on, b.source); sendJson(res, 200, { results: r }); return true }
     if (m === 'POST' && path === '/imu') { const b = await readJson(req); const r = await shell.registry.host.imu(!!b.on, b.pace); sendJson(res, 200, { results: r }); return true }
     if (m === 'POST' && path === '/location') { const b = await readJson(req); const r = await shell.registry.host.location(b); sendJson(res, 200, { location: r }); return true }
